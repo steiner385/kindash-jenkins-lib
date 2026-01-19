@@ -1,21 +1,18 @@
 # KinDash Jenkins Shared Library
 
-Jenkins shared library for KinDash CI/CD pipelines.
+Jenkins shared library and configuration for KinDash CI/CD pipelines.
 
 ## Overview
 
-This repository contains reusable Groovy functions for Jenkins pipelines. It follows the decoupled architecture pattern where pipeline logic is separated from application code, allowing:
-
-- **Pipeline independence**: CI/CD changes don't require app PR reviews
-- **Break the chicken-egg**: Fix broken pipelines without app CI passing
-- **Reusability**: Library usable across multiple projects
-- **Faster iteration**: Direct push for infrastructure fixes
+This repository contains everything needed to run KinDash CI/CD on Jenkins:
+- **Shared Library Functions** - Reusable Groovy functions for pipelines
+- **JCasC Configuration** - Jenkins Configuration as Code for automated setup
 
 ## Directory Structure
 
 ```
 kindash-jenkins-lib/
-├── vars/                    # Global pipeline functions
+├── vars/                    # Shared library functions
 │   ├── analyzeAllureFailures.groovy
 │   ├── analyzeTestFailures.groovy
 │   ├── buildProject.groovy
@@ -32,13 +29,27 @@ kindash-jenkins-lib/
 │   ├── runLintChecks.groovy
 │   ├── runUnitTests.groovy
 │   └── withAwsCredentials.groovy
+├── config/                  # JCasC configuration
+│   └── jenkins.yaml         # Full Jenkins configuration
 ├── src/                     # Reserved for Groovy classes
 └── resources/               # Reserved for non-Groovy resources
 ```
 
-## Usage
+## Quick Start
 
-### In Jenkinsfile
+### 1. Configure Global Pipeline Library
+
+In Jenkins → Manage Jenkins → System → Global Pipeline Libraries:
+
+| Setting | Value |
+|---------|-------|
+| Name | `kindash-lib` |
+| Default version | `main` |
+| Retrieval method | Modern SCM |
+| Project Repository | `https://github.com/steiner385/kindash-jenkins-lib.git` |
+| Credentials | `github-credentials` |
+
+### 2. Use in Jenkinsfile
 
 ```groovy
 @Library('kindash-lib@main') _
@@ -63,15 +74,6 @@ pipeline {
             }
         }
     }
-
-    post {
-        always {
-            publishReports()
-        }
-        failure {
-            createGitHubIssue()
-        }
-    }
 }
 ```
 
@@ -81,12 +83,12 @@ pipeline {
 
 | Function | Description |
 |----------|-------------|
-| `installDependencies()` | Smart package manager detection (pnpm/yarn/npm) and dependency installation |
+| `installDependencies()` | Auto-detects package manager (pnpm/yarn/npm) and installs |
 | `buildProject()` | Build and archive artifacts |
-| `runUnitTests()` | Execute Jest/Vitest unit tests with coverage |
+| `runUnitTests()` | Execute unit tests with coverage |
 | `runLintChecks()` | Run ESLint and type checking |
-| `runE2ETests()` | Execute Playwright E2E tests with infrastructure |
-| `runIntegrationTests()` | Run integration tests with database setup |
+| `runE2ETests()` | Execute Playwright E2E tests |
+| `runIntegrationTests()` | Run integration tests with Docker |
 
 ### Reporting Functions
 
@@ -108,22 +110,35 @@ pipeline {
 | `dockerCleanup()` | Clean up Docker containers and ports |
 | `withAwsCredentials()` | Inject AWS Bedrock credentials |
 
-## Jenkins Configuration
+## JCasC Configuration
 
-### Global Pipeline Library Setup
+The `config/jenkins.yaml` file contains the complete Jenkins configuration:
+- Global Pipeline Library setup
+- Agent/node definitions
+- Credentials configuration
+- Job definitions (KinDash-ci, KinDash-nightly, etc.)
 
-Configure in Jenkins → Manage Jenkins → System → Global Pipeline Libraries:
+### Deploying JCasC
 
-| Setting | Value |
-|---------|-------|
-| Name | `kindash-lib` |
-| Default version | `main` |
-| Retrieval method | Modern SCM |
-| Source Code Management | Git |
-| Project Repository | `https://github.com/steiner385/kindash-jenkins-lib.git` |
-| Credentials | `github-credentials` |
+Copy to your Jenkins controller:
+```bash
+cp config/jenkins.yaml $JENKINS_HOME/casc_configs/kindash.yaml
+```
 
-### Required Credentials
+Or reference directly in Jenkins Configuration as Code plugin settings.
+
+### Webhook Configuration
+
+The main CI pipeline uses GenericTrigger for webhook-based builds.
+
+**GitHub Webhook Setup:**
+1. Go to KinDash repo → Settings → Webhooks → Add webhook
+2. Configure:
+   - **URL**: `https://jenkins.kindash.com/generic-webhook-trigger/invoke?token=kindash-ci`
+   - **Content type**: `application/json`
+   - **Events**: Push events
+
+## Required Credentials
 
 | Credential ID | Type | Purpose |
 |---------------|------|---------|
@@ -132,6 +147,16 @@ Configure in Jenkins → Manage Jenkins → System → Global Pipeline Libraries
 | `aws-access-key-id` | Secret text | AWS Bedrock access |
 | `aws-secret-access-key` | Secret text | AWS Bedrock secret |
 | `aws-region` | Secret text | AWS region (us-east-1) |
+
+## Package Manager Auto-Detection
+
+The library automatically detects the package manager based on lock files:
+
+| Lock File | Package Manager | Install Command |
+|-----------|-----------------|-----------------|
+| `pnpm-lock.yaml` | pnpm | `npx pnpm install --frozen-lockfile` |
+| `yarn.lock` | yarn | `yarn install --frozen-lockfile` |
+| `package-lock.json` | npm | `npm ci` |
 
 ## Development
 
@@ -146,13 +171,49 @@ Configure in Jenkins → Manage Jenkins → System → Global Pipeline Libraries
 
 Test changes by:
 1. Pushing to this repo
-2. Triggering a build in any project that uses `@Library('kindash-lib@main')`
+2. Triggering a build in KinDash
 3. Checking Jenkins console output for `Loading library kindash-lib@main`
+
+## Architecture
+
+This repository follows the decoupled CI/CD pattern:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    GitHub                                │
+│  ┌─────────────────┐     ┌─────────────────────────┐   │
+│  │    KinDash      │     │  kindash-jenkins-lib    │   │
+│  │  (app code)     │     │  (CI/CD config)         │   │
+│  │                 │     │                         │   │
+│  │ .jenkins/       │     │ vars/     (functions)   │   │
+│  │   Jenkinsfile*  │     │ config/   (JCasC)       │   │
+│  └────────┬────────┘     └───────────┬─────────────┘   │
+│           │                          │                  │
+└───────────│──────────────────────────│──────────────────┘
+            │                          │
+            │    Webhook               │  Library Load
+            ▼                          ▼
+┌─────────────────────────────────────────────────────────┐
+│                      Jenkins                             │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │              KinDash-ci Job                      │   │
+│  │  1. Loads kindash-lib@main                      │   │
+│  │  2. Runs Jenkinsfile from KinDash repo          │   │
+│  │  3. Uses shared library functions               │   │
+│  └─────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Benefits
+
+- **Pipeline independence** - CI/CD changes don't require app PR reviews
+- **Break the chicken-egg** - Can fix broken pipelines without app CI passing
+- **Reusability** - Library usable across multiple projects
+- **Faster iteration** - Direct push for infrastructure fixes
 
 ## Related Repositories
 
 - [KinDash](https://github.com/steiner385/KinDash) - Main application
-- [jenkins-config](https://github.com/steiner385/jenkins-config) - JCasC configuration
 
 ## License
 
