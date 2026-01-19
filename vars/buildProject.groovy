@@ -15,7 +15,8 @@
  */
 
 def call(Map config = [:]) {
-    def buildCommand = config.buildCommand ?: 'npm run build'
+    def pm = pipelineHelpers.getPackageManager()
+    def buildCommand = config.buildCommand ?: "${pm.run} build"
     def artifacts = config.artifacts ?: 'dist/**'
     def skipIfExists = config.skipIfExists ?: false
     def skipCheckout = config.skipCheckout ?: false
@@ -55,14 +56,16 @@ def call(Map config = [:]) {
  * Build for production
  */
 def production(Map config = [:]) {
-    call(config + [buildCommand: config.buildCommand ?: 'npm run build:prod'])
+    def pm = pipelineHelpers.getPackageManager()
+    call(config + [buildCommand: config.buildCommand ?: "${pm.run} build:prod"])
 }
 
 /**
  * Build for staging
  */
 def staging(Map config = [:]) {
-    call(config + [buildCommand: config.buildCommand ?: 'npm run build:staging'])
+    def pm = pipelineHelpers.getPackageManager()
+    call(config + [buildCommand: config.buildCommand ?: "${pm.run} build:staging"])
 }
 
 return this

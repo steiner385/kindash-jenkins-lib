@@ -18,7 +18,8 @@
 
 def call(Map config = [:]) {
     def statusContext = config.statusContext ?: 'jenkins/e2e'
-    def testCommand = config.testCommand ?: 'npm run test:e2e'
+    def pm = pipelineHelpers.getPackageManager()
+    def testCommand = config.testCommand ?: "${pm.run} test:e2e"
     def lockResource = config.lockResource ?: 'test-infrastructure'
     def composeFile = config.composeFile ?: 'deployment/docker/docker-compose.test.yml'
     def ports = config.ports ?: pipelineHelpers.getServicePorts()
@@ -119,7 +120,8 @@ def withVisualRegression(Map config = [:]) {
 
     // Run visual regression tests after E2E
     script {
-        def visualResult = sh(script: 'npm run test:visual', returnStatus: true)
+        def pm = pipelineHelpers.getPackageManager()
+        def visualResult = sh(script: "${pm.run} test:visual", returnStatus: true)
         if (visualResult != 0) {
             unstable('Visual regression tests detected differences')
         }

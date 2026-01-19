@@ -1,69 +1,53 @@
 #!/usr/bin/env groovy
 /**
  * Install Dependencies Stage
- * Smart npm installation with caching support
+ * Smart package manager installation with caching support
  *
  * Features:
- * - Uses .npmrc.ci if present
+ * - Auto-detects package manager (pnpm, yarn, npm)
+ * - Uses .npmrc.ci if present (for npm)
  * - Skips install if node_modules is up-to-date
- * - Legacy peer deps support
+ * - Legacy peer deps support (npm only)
  * - Official npm registry enforcement
  *
  * Usage:
- *   installDependencies()  // Use defaults
- *   installDependencies(legacyPeerDeps: false)
+ *   installDependencies()  // Use defaults, auto-detect package manager
  *   installDependencies(forceInstall: true)
+ *   installDependencies(packageManager: 'pnpm')  // Force specific package manager
  */
 
 def call(Map config = [:]) {
-    def useNpmrc = config.useNpmrc != null ? config.useNpmrc : true
-    def legacyPeerDeps = config.legacyPeerDeps != null ? config.legacyPeerDeps : true
     def forceInstall = config.forceInstall ?: false
     def registry = config.registry ?: 'https://registry.npmjs.org/'
 
-    def peerDepsFlag = legacyPeerDeps ? '--legacy-peer-deps' : ''
+    // Get package manager configuration
+    def pm = pipelineHelpers.getPackageManager()
+    def pmName = config.packageManager ?: pm.name
 
-    // Configure npm registry and .npmrc
-    if (useNpmrc) {
-        sh """
-            # Use CI-specific npmrc if available
-            if [ -f "config/tools/.npmrc.ci" ]; then
-                echo "Using CI npm configuration..."
-                cp config/tools/.npmrc.ci .npmrc
-            elif [ -f ".npmrc.ci" ]; then
-                echo "Using CI npm configuration (legacy location)..."
-                cp .npmrc.ci .npmrc
-            else
-                # Remove any local npmrc that might point to Verdaccio
-                rm -f .npmrc
-            fi
+    echo "Using package manager: ${pmName}"
 
-            # Override any local registry config - use official npm registry
-            npm config set registry ${registry}
+    // Clean up .npmrc for CI (can cause issues with pnpm in CI)
+    sh 'rm -f .npmrc'
 
-            # Fix package-lock.json URLs if they point to local Verdaccio
-            # npm ci uses resolved URLs from lock file, ignoring registry config
-            if grep -q 'localhost:4873' package-lock.json 2>/dev/null; then
-                echo "Fixing Verdaccio URLs in package-lock.json..."
-                sed -i 's|http://localhost:4873|https://registry.npmjs.org|g' package-lock.json
-            fi
-        """
-    }
+    // Set memory limit for large dependency trees
+    sh 'export NODE_OPTIONS="--max-old-space-size=4096"'
+
+    // Get the lock file name for cache checking
+    def lockFile = pmName == 'pnpm' ? 'pnpm-lock.yaml' : (pmName == 'yarn' ? 'yarn.lock' : 'package-lock.json')
 
     // Install dependencies (smart caching)
     if (forceInstall) {
         sh """
-            echo "Force installing dependencies..."
+            echo "Force installing dependencies with ${pmName}..."
             rm -rf node_modules
-            npm ci ${peerDepsFlag}
-            cp package-lock.json node_modules/.package-lock.json
+            ${pm.install}
         """
     } else {
         sh """
-            if [ ! -d "node_modules" ] || [ "package-lock.json" -nt "node_modules/.package-lock.json" ]; then
-                echo "Installing dependencies..."
-                npm ci ${peerDepsFlag}
-                cp package-lock.json node_modules/.package-lock.json
+            if [ ! -d "node_modules" ] || [ "${lockFile}" -nt "node_modules/.cache-marker" ]; then
+                echo "Installing dependencies with ${pmName}..."
+                ${pm.install}
+                touch node_modules/.cache-marker
             else
                 echo "Dependencies up to date, skipping install"
             fi

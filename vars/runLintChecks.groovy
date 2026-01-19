@@ -16,8 +16,9 @@
 
 def call(Map config = [:]) {
     def statusContext = config.statusContext ?: 'jenkins/lint'
-    def lintCommand = config.lintCommand ?: 'npm run lint'
-    def typeCheckCommand = config.typeCheckCommand ?: 'npm run type-check'
+    def pm = pipelineHelpers.getPackageManager()
+    def lintCommand = config.lintCommand ?: "${pm.run} lint"
+    def typeCheckCommand = config.typeCheckCommand ?: "${pm.run} type-check"
     def skipLint = config.skipLint ?: false
     def skipTypeCheck = config.skipTypeCheck ?: false
     def typeCheckIgnoreErrors = config.typeCheckIgnoreErrors ?: false

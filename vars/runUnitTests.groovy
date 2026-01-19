@@ -17,7 +17,8 @@
 
 def call(Map config = [:]) {
     def statusContext = config.statusContext ?: 'jenkins/unit-tests'
-    def testCommand = config.testCommand ?: 'npm run test:unit -- --coverage'
+    def pm = pipelineHelpers.getPackageManager()
+    def testCommand = config.testCommand ?: "${pm.run} test:unit -- --coverage"
     def coverageThreshold = config.coverageThreshold ?: 70
     def coverageDir = config.coverageDir ?: 'coverage/lcov-report'
     def enableAllure = config.enableAllure != null ? config.enableAllure : true

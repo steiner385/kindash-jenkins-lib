@@ -17,7 +17,8 @@
 
 def call(Map config = [:]) {
     def statusContext = config.statusContext ?: 'jenkins/integration'
-    def testCommand = config.testCommand ?: 'npm run test:integration'
+    def pm = pipelineHelpers.getPackageManager()
+    def testCommand = config.testCommand ?: "${pm.run} test:integration"
     def lockResource = config.lockResource ?: 'test-infrastructure'
     def composeFile = config.composeFile ?: 'deployment/docker/docker-compose.test.yml'
     def ports = config.ports ?: pipelineHelpers.getServicePorts()
