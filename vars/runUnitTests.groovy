@@ -41,7 +41,7 @@ def call(Map config = [:]) {
     def coverageDir
 
     if (isVitest) {
-        // Vitest configuration
+        // Vitest configuration - uses package.json scripts that are properly configured
         echo "✓ Detected Vitest - using vitest with coverage"
         testCommand = config.testCommand ?: "${pm.run} test:coverage"
         coverageDir = config.coverageDir ?: 'coverage'
