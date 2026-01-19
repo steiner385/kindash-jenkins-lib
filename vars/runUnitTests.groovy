@@ -41,9 +41,9 @@ def call(Map config = [:]) {
     def coverageDir
 
     if (isVitest) {
-        // Vitest configuration - uses package.json scripts that are properly configured
-        echo "✓ Detected Vitest - using vitest with coverage"
-        testCommand = config.testCommand ?: "${pm.run} test:coverage"
+        // Vitest configuration - uses minimal CI test suite for fast builds
+        echo "✓ Detected Vitest - using optimized CI test suite"
+        testCommand = config.testCommand ?: "${pm.run} test:unit:ci"
         coverageDir = config.coverageDir ?: 'coverage'
     } else {
         // Jest configuration (default/legacy)
