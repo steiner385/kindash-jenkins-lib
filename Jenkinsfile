@@ -16,8 +16,13 @@
  * For more details, see README.md in this repository.
  */
 
-// Load shared library from this repository
-@Library('kindash-lib@main') _
+// Load shared library directly from GitHub (self-contained, no global config required)
+library identifier: 'kindash-lib@main',
+    retriever: modernSCM([
+        $class: 'GitSCMSource',
+        remote: 'https://github.com/steiner385/kindash-jenkins-lib.git',
+        credentialsId: 'github-credentials'
+    ])
 
 pipeline {
     agent any
@@ -63,19 +68,15 @@ pipeline {
     stages {
         stage('Initialize') {
             steps {
-                script {
-                    // Handle webhook-triggered builds
-                    def webhookRef = env.ref ?: ''
-                    def webhookCommit = env.after ?: ''
-
-                    if (webhookRef) {
-                        def branch = webhookRef.replaceAll('refs/heads/', '')
-                        echo "Webhook triggered for branch: ${branch}, commit: ${webhookCommit}"
-                        env.BRANCH_NAME = branch
-                        env.GIT_COMMIT = webhookCommit
-                    }
-                }
-                checkout scm
+                // Checkout KinDash repo (triggered by webhook with $ref and $after variables)
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: env.ref ?: '*/main']],
+                    userRemoteConfigs: [[
+                        url: "https://github.com/${env.GITHUB_OWNER}/${env.GITHUB_REPO}.git",
+                        credentialsId: 'github-credentials'
+                    ]]
+                ])
                 script {
                     env.GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
                     env.GIT_COMMIT = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
