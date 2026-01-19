@@ -257,7 +257,7 @@ jobs:
                   url('https://github.com/steiner385/KinDash.git')
                   credentials('github-credentials')
                 }
-                branch('**')
+                branch('*/main')  // Default to main; GenericTrigger overrides via webhook
               }
             }
             scriptPath('.jenkins/Jenkinsfile')
