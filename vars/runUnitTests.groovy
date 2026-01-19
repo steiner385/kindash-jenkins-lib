@@ -4,23 +4,22 @@
  * Executes unit tests with coverage reporting and threshold checks
  *
  * Features:
+ * - Auto-detects test framework (vitest vs jest)
  * - GitHub status reporting (pending/success/failure)
  * - Coverage threshold enforcement
  * - JUnit and coverage report publishing
  * - Allure report support
  *
  * Usage:
- *   runUnitTests()  // Use defaults
- *   runUnitTests(testCommand: 'npm run test:unit -- --coverage')
+ *   runUnitTests()  // Use defaults, auto-detect test framework
+ *   runUnitTests(testCommand: 'pnpm run test:unit -- --coverage')
  *   runUnitTests(coverageThreshold: 80)
  */
 
 def call(Map config = [:]) {
     def statusContext = config.statusContext ?: 'jenkins/unit-tests'
     def pm = pipelineHelpers.getPackageManager()
-    def testCommand = config.testCommand ?: "${pm.run} test:unit -- --coverage"
     def coverageThreshold = config.coverageThreshold ?: 70
-    def coverageDir = config.coverageDir ?: 'coverage/lcov-report'
     def enableAllure = config.enableAllure != null ? config.enableAllure : true
     def skipCheckout = config.skipCheckout ?: false
 
@@ -32,6 +31,27 @@ def call(Map config = [:]) {
     // Install dependencies if needed
     installDependencies()
 
+    // Detect test framework (vitest vs jest)
+    def isVitest = fileExists('vitest.config.ts') ||
+                   fileExists('vitest.config.js') ||
+                   fileExists('vitest.config.mjs') ||
+                   fileExists('vitest.config.cjs')
+
+    def testCommand
+    def coverageDir
+
+    if (isVitest) {
+        // Vitest configuration
+        echo "✓ Detected Vitest - using vitest with coverage"
+        testCommand = config.testCommand ?: "${pm.run} test:coverage"
+        coverageDir = config.coverageDir ?: 'coverage'
+    } else {
+        // Jest configuration (default/legacy)
+        echo "✓ Detected Jest - using jest with coverage"
+        testCommand = config.testCommand ?: "${pm.run} test:unit -- --coverage"
+        coverageDir = config.coverageDir ?: 'coverage/lcov-report'
+    }
+
     // Report pending status
     githubStatusReporter(
         status: 'pending',
@@ -41,15 +61,20 @@ def call(Map config = [:]) {
 
     try {
         // Clean previous results
-        sh 'rm -rf allure-results'
+        sh 'rm -rf allure-results coverage'
 
-        // Run unit tests
+        // Run unit tests with coverage
+        echo "Running: ${testCommand}"
         sh testCommand
 
-        // Check coverage threshold
+        // Check coverage threshold (only if coverage was generated)
         script {
-            if (fileExists('coverage/coverage-summary.json')) {
-                def coverageReport = readFile('coverage/coverage-summary.json')
+            def coverageSummaryFile = 'coverage/coverage-summary.json'
+
+            if (fileExists(coverageSummaryFile)) {
+                echo "Coverage report generated at ${coverageSummaryFile}"
+
+                def coverageReport = readFile(coverageSummaryFile)
                 def coverage = readJSON(text: coverageReport)
                 def lineCoverage = coverage.total.lines.pct
 
@@ -64,6 +89,10 @@ def call(Map config = [:]) {
                     )
                     return
                 }
+            } else {
+                echo "⚠ Warning: Coverage summary file not found at ${coverageSummaryFile}"
+                echo "This may indicate test failures prevented coverage generation"
+                echo "Check test output above for failures"
             }
         }
 
@@ -76,6 +105,7 @@ def call(Map config = [:]) {
 
     } catch (Exception e) {
         // Report failure
+        echo "✗ Unit tests failed"
         githubStatusReporter(
             status: 'failure',
             context: statusContext,
@@ -84,7 +114,7 @@ def call(Map config = [:]) {
         throw e
 
     } finally {
-        // Always publish reports
+        // Always publish reports (even if tests fail)
         publishReports(
             junit: true,
             coverage: true,
