@@ -242,8 +242,8 @@ credentials:
               description: "AWS Region for Bedrock"
 
 # Job Definitions
-# NOTE: Triggers are defined in Jenkinsfiles (GenericTrigger), not here
-# This allows pipelines to control their own triggering via webhooks
+# All jobs load Jenkinsfiles from this lib repo, NOT from the application repo
+# Triggers are defined in Jenkinsfiles (GenericTrigger), not here
 jobs:
   # Main CI Pipeline - triggered by webhook (GenericTrigger in Jenkinsfile)
   - script: |
@@ -254,19 +254,18 @@ jobs:
             scm {
               git {
                 remote {
-                  url('https://github.com/steiner385/KinDash.git')
+                  url('https://github.com/steiner385/kindash-jenkins-lib.git')
                   credentials('github-credentials')
                 }
-                branch('*/main')  // Default to main; GenericTrigger overrides via webhook
+                branch('*/main')
               }
             }
-            scriptPath('.jenkins/Jenkinsfile')
+            scriptPath('Jenkinsfile')
           }
         }
         properties {
           githubProjectUrl('https://github.com/steiner385/KinDash')
         }
-        // No triggers here - GenericTrigger is defined in Jenkinsfile
         logRotator {
           numToKeep(30)
         }
@@ -281,13 +280,13 @@ jobs:
             scm {
               git {
                 remote {
-                  url('https://github.com/steiner385/KinDash.git')
+                  url('https://github.com/steiner385/kindash-jenkins-lib.git')
                   credentials('github-credentials')
                 }
                 branch('*/main')
               }
             }
-            scriptPath('.jenkins/Jenkinsfile.nightly')
+            scriptPath('Jenkinsfile.nightly')
           }
         }
         triggers {
@@ -307,13 +306,13 @@ jobs:
             scm {
               git {
                 remote {
-                  url('https://github.com/steiner385/KinDash.git')
+                  url('https://github.com/steiner385/kindash-jenkins-lib.git')
                   credentials('github-credentials')
                 }
                 branch('*/main')
               }
             }
-            scriptPath('.jenkins/Jenkinsfile.unit')
+            scriptPath('Jenkinsfile.unit')
           }
         }
         logRotator {
@@ -330,13 +329,13 @@ jobs:
             scm {
               git {
                 remote {
-                  url('https://github.com/steiner385/KinDash.git')
+                  url('https://github.com/steiner385/kindash-jenkins-lib.git')
                   credentials('github-credentials')
                 }
                 branch('*/main')
               }
             }
-            scriptPath('.jenkins/Jenkinsfile.integration')
+            scriptPath('Jenkinsfile.integration')
           }
         }
         logRotator {
@@ -353,13 +352,13 @@ jobs:
             scm {
               git {
                 remote {
-                  url('https://github.com/steiner385/KinDash.git')
+                  url('https://github.com/steiner385/kindash-jenkins-lib.git')
                   credentials('github-credentials')
                 }
                 branch('*/main')
               }
             }
-            scriptPath('.jenkins/Jenkinsfile.e2e')
+            scriptPath('Jenkinsfile.e2e')
           }
         }
         logRotator {
