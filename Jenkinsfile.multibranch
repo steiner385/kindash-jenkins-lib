@@ -153,6 +153,11 @@ pipeline {
                     context: ciContext,
                     description: "This commit looks good"
                 )
+
+                // Enable auto-merge for PR builds
+                if (env.CHANGE_ID) {
+                    autoMergePullRequest(mergeMethod: 'SQUASH')
+                }
             }
         }
         failure {
