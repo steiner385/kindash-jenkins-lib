@@ -1,14 +1,10 @@
 # Jenkins Configuration as Code (JCasC)
-# KinDash CI/CD Pipeline Configuration
-#
-# This file configures Jenkins for KinDash CI/CD pipelines.
-# Deploy by copying to Jenkins controller's $JENKINS_HOME/casc_configs/
+# Fixed Job DSL syntax based on official remote-file-plugin docs
 
 jenkins:
   systemMessage: |
-    KinDash CI/CD Pipeline Server
-    Library: https://github.com/steiner385/kindash-jenkins-lib
-    URL: https://jenkins.kindash.com
+    CI/CD Pipeline Server
+    Projects: KinDash, uniteDiscord
 
   numExecutors: 0
   mode: EXCLUSIVE
@@ -36,7 +32,6 @@ jenkins:
             permissions:
               - "Overall/Read"
 
-  # Shared runner pool - 8 agents with capability-based labels
   nodes:
     - permanent:
         name: "runner-1"
@@ -159,7 +154,6 @@ security:
     useScriptSecurity: false
 
 unclassified:
-  # Global Pipeline Library - points to this repository
   globalLibraries:
     libraries:
       - name: "kindash-lib"
@@ -171,6 +165,16 @@ unclassified:
             scm:
               git:
                 remote: "https://github.com/steiner385/kindash-jenkins-lib.git"
+                credentialsId: "github-credentials"
+      - name: "unitediscord-lib"
+        defaultVersion: "main"
+        implicit: false
+        allowVersionOverride: true
+        retriever:
+          modernSCM:
+            scm:
+              git:
+                remote: "https://github.com/steiner385/unitediscord-jenkins-lib.git"
                 credentialsId: "github-credentials"
 
   location:
@@ -241,83 +245,123 @@ credentials:
               secret: "${AWS_REGION:-us-east-1}"
               description: "AWS Region for Bedrock"
 
-# Job Definitions
-# All jobs load Jenkinsfiles from this lib repo, NOT from the application repo
+# Job Definitions - using syntax from remote-file-plugin official docs
 jobs:
-  # ==========================================================================
-  # Multi-branch Pipeline - Primary CI/CD
-  # ==========================================================================
-  # Automatically builds all branches and PRs with:
-  # - PR-specific builds with E2E tests
-  # - Branch-specific deployment (main → prod, develop → staging)
-  # - Orphan branch cleanup after 60 days
+  # KinDash Multi-branch Pipeline
   - script: |
       multibranchPipelineJob('KinDash-multibranch') {
         displayName('KinDash Branches')
         description('Multi-branch pipeline for all KinDash branches and PRs')
-
         branchSources {
           github {
             id('kindash-github-source')
             repoOwner('steiner385')
             repository('KinDash')
             scanCredentialsId('github-credentials')
-
-            // Build branches and PRs
             buildOriginBranch(true)
-            buildOriginBranchWithPR(false)  // Avoid duplicate PR+branch builds
-            buildOriginPRMerge(true)        // Build PR merge result
-            buildOriginPRHead(false)        // Don't double-build PR head
-            buildForkPRMerge(false)         // Security: don't build fork PRs
+            buildOriginBranchWithPR(false)
+            buildOriginPRMerge(true)
+            buildOriginPRHead(false)
+            buildForkPRMerge(false)
           }
         }
-
-        // Load Jenkinsfile from library repo, not app repo
         factory {
           remoteJenkinsFileWorkflowBranchProjectFactory {
-            scriptPath('Jenkinsfile.multibranch')
+            localMarker('')
+            matchBranches(false)
+            remoteJenkinsFile('Jenkinsfile.multibranch')
             remoteJenkinsFileSCM {
               gitSCM {
                 userRemoteConfigs {
                   userRemoteConfig {
+                    name('origin')
                     url('https://github.com/steiner385/kindash-jenkins-lib.git')
+                    refspec('main')
                     credentialsId('github-credentials')
                   }
                 }
                 branches {
-                  branchSpec { name('*/main') }
+                  branchSpec {
+                    name('main')
+                  }
                 }
+                browser {}
+                gitTool('')
               }
             }
           }
         }
-
-        // Cleanup old branches
         orphanedItemStrategy {
           discardOldItems {
             numToKeep(30)
             daysToKeep(60)
           }
         }
-
-        // Scan for new branches every 5 minutes
         triggers {
           periodicFolderTrigger {
             interval('5 minutes')
           }
         }
+      }
 
-        // Branch properties
-        configure { node ->
-          node / 'properties' / 'org.jenkinsci.plugins.workflow.multibranch.PipelineNotFoundBehavior' {
-            'notFoundStrategy'('IGNORE')
+  # uniteDiscord Multi-branch Pipeline
+  - script: |
+      multibranchPipelineJob('uniteDiscord-multibranch') {
+        displayName('uniteDiscord Branches')
+        description('Multi-branch pipeline for all uniteDiscord branches and PRs')
+        branchSources {
+          github {
+            id('unitediscord-github-source')
+            repoOwner('steiner385')
+            repository('uniteDiscord')
+            scanCredentialsId('github-credentials')
+            buildOriginBranch(true)
+            buildOriginBranchWithPR(false)
+            buildOriginPRMerge(true)
+            buildOriginPRHead(false)
+            buildForkPRMerge(false)
+          }
+        }
+        factory {
+          remoteJenkinsFileWorkflowBranchProjectFactory {
+            localMarker('')
+            matchBranches(false)
+            remoteJenkinsFile('Jenkinsfile.multibranch')
+            remoteJenkinsFileSCM {
+              gitSCM {
+                userRemoteConfigs {
+                  userRemoteConfig {
+                    name('origin')
+                    url('https://github.com/steiner385/unitediscord-jenkins-lib.git')
+                    refspec('main')
+                    credentialsId('github-credentials')
+                  }
+                }
+                branches {
+                  branchSpec {
+                    name('main')
+                  }
+                }
+                browser {}
+                gitTool('')
+              }
+            }
+          }
+        }
+        orphanedItemStrategy {
+          discardOldItems {
+            numToKeep(30)
+            daysToKeep(60)
+          }
+        }
+        triggers {
+          periodicFolderTrigger {
+            interval('5 minutes')
           }
         }
       }
 
-  # ==========================================================================
-  # Nightly Build - Scheduled comprehensive tests
-  # ==========================================================================
+  # KinDash Nightly Build
   - script: |
       pipelineJob('KinDash-nightly') {
         description('Nightly comprehensive build - full test suite, security audits')
@@ -337,6 +381,32 @@ jobs:
         }
         triggers {
           cron('0 1 * * *')
+        }
+        logRotator {
+          numToKeep(14)
+        }
+      }
+
+  # uniteDiscord Nightly Build
+  - script: |
+      pipelineJob('uniteDiscord-nightly') {
+        description('Nightly comprehensive build - full test suite, security audits')
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url('https://github.com/steiner385/unitediscord-jenkins-lib.git')
+                  credentials('github-credentials')
+                }
+                branch('*/main')
+              }
+            }
+            scriptPath('Jenkinsfile.nightly')
+          }
+        }
+        triggers {
+          cron('0 2 * * *')
         }
         logRotator {
           numToKeep(14)
