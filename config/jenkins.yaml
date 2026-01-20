@@ -245,6 +245,81 @@ credentials:
 # All jobs load Jenkinsfiles from this lib repo, NOT from the application repo
 # Triggers are defined in Jenkinsfiles (GenericTrigger), not here
 jobs:
+  # ==========================================================================
+  # NEW: Multi-branch Pipeline (replaces KinDash-ci after migration)
+  # ==========================================================================
+  # This creates per-branch/PR jobs automatically with:
+  # - PR-specific builds with E2E tests
+  # - Branch-specific deployment (main → prod, develop → staging)
+  # - Orphan branch cleanup after 60 days
+  - script: |
+      multibranchPipelineJob('KinDash-multibranch') {
+        displayName('KinDash Branches')
+        description('Multi-branch pipeline for all KinDash branches and PRs')
+
+        branchSources {
+          github {
+            id('kindash-github-source')
+            repoOwner('steiner385')
+            repository('KinDash')
+            scanCredentialsId('github-credentials')
+
+            // Build branches and PRs
+            buildOriginBranch(true)
+            buildOriginBranchWithPR(false)  // Avoid duplicate PR+branch builds
+            buildOriginPRMerge(true)        // Build PR merge result
+            buildOriginPRHead(false)        // Don't double-build PR head
+            buildForkPRMerge(false)         // Security: don't build fork PRs
+          }
+        }
+
+        // Load Jenkinsfile from library repo, not app repo
+        factory {
+          remoteJenkinsFileWorkflowBranchProjectFactory {
+            scriptPath('Jenkinsfile.multibranch')
+            remoteJenkinsFileSCM {
+              gitSCM {
+                userRemoteConfigs {
+                  userRemoteConfig {
+                    url('https://github.com/steiner385/kindash-jenkins-lib.git')
+                    credentialsId('github-credentials')
+                  }
+                }
+                branches {
+                  branchSpec { name('*/main') }
+                }
+              }
+            }
+          }
+        }
+
+        // Cleanup old branches
+        orphanedItemStrategy {
+          discardOldItems {
+            numToKeep(30)
+            daysToKeep(60)
+          }
+        }
+
+        // Scan for new branches every 5 minutes
+        triggers {
+          periodicFolderTrigger {
+            interval('5 minutes')
+          }
+        }
+
+        // Branch properties
+        configure { node ->
+          node / 'properties' / 'org.jenkinsci.plugins.workflow.multibranch.PipelineNotFoundBehavior' {
+            'notFoundStrategy'('IGNORE')
+          }
+        }
+      }
+
+  # ==========================================================================
+  # EXISTING JOBS (keep during migration period, remove after 2 weeks stable)
+  # ==========================================================================
+
   # Main CI Pipeline - triggered by webhook (GenericTrigger in Jenkinsfile)
   - script: |
       pipelineJob('KinDash-ci') {

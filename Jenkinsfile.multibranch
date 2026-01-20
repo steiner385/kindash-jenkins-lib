@@ -1,0 +1,247 @@
+#!/usr/bin/env groovy
+/**
+ * KinDash Multi-Branch Pipeline
+ *
+ * Branch-aware pipeline that provides:
+ * - PR-specific builds with additional E2E tests
+ * - Branch-specific deployment (main → prod, develop → staging)
+ * - Feature branches get CI only (no deployment)
+ *
+ * Multi-branch Jenkins provides these environment variables automatically:
+ *   BRANCH_NAME   - Current branch name (e.g., 'main', 'develop', 'feature/foo')
+ *   CHANGE_ID     - PR number (null if not a PR build)
+ *   CHANGE_TARGET - PR target branch (null if not a PR build)
+ *   CHANGE_AUTHOR - PR author (null if not a PR build)
+ *   CHANGE_TITLE  - PR title (null if not a PR build)
+ *
+ * Webhook Setup:
+ *   URL: https://jenkins.kindash.com/github-webhook/
+ *   Content type: application/json
+ *   Events: Push, Pull requests
+ */
+
+// Load shared library from GitHub
+library identifier: 'kindash-lib@main',
+    retriever: modernSCM([
+        $class: 'GitSCMSource',
+        remote: 'https://github.com/steiner385/kindash-jenkins-lib.git',
+        credentialsId: 'github-credentials'
+    ])
+
+pipeline {
+    agent any
+
+    environment {
+        GITHUB_OWNER = 'steiner385'
+        GITHUB_REPO = 'KinDash'
+        CI = 'true'
+        NODE_ENV = 'test'
+        NODE_OPTIONS = '--max-old-space-size=6144'
+
+        // Multi-branch provides BRANCH_NAME, CHANGE_ID, CHANGE_TARGET automatically
+    }
+
+    options {
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        timeout(time: 60, unit: 'MINUTES')
+        disableConcurrentBuilds(abortPrevious: true)
+    }
+
+    stages {
+        stage('Initialize') {
+            steps {
+                script {
+                    // Determine build type for logging and status reporting
+                    def buildType = env.CHANGE_ID ? "PR #${env.CHANGE_ID}" : "Branch: ${env.BRANCH_NAME}"
+                    echo "=== Multi-Branch Build ==="
+                    echo "Build type: ${buildType}"
+                    if (env.CHANGE_ID) {
+                        echo "PR Title: ${env.CHANGE_TITLE ?: 'N/A'}"
+                        echo "PR Author: ${env.CHANGE_AUTHOR ?: 'N/A'}"
+                        echo "Target Branch: ${env.CHANGE_TARGET ?: 'N/A'}"
+                    }
+                    echo "=========================="
+
+                    // Report pending status to GitHub
+                    githubStatusReporter(
+                        status: 'pending',
+                        context: 'jenkins/ci',
+                        description: "Build started for ${buildType}"
+                    )
+                }
+
+                // Checkout the KinDash application repo (multi-branch SCM)
+                checkout scm
+
+                script {
+                    env.GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                    env.GIT_COMMIT = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+                    echo "Building commit: ${env.GIT_COMMIT_SHORT}"
+                }
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                installDependencies()
+            }
+        }
+
+        stage('Lint') {
+            steps {
+                runLintChecks(skipCheckout: true)
+            }
+        }
+
+        stage('Unit Tests') {
+            steps {
+                withAwsCredentials {
+                    runUnitTests(
+                        skipCheckout: true,
+                        coverageThreshold: 70
+                    )
+                }
+            }
+        }
+
+        stage('Build') {
+            steps {
+                buildProject(skipCheckout: true)
+            }
+        }
+
+        // PR-SPECIFIC: Additional E2E tests on PRs and protected branches
+        stage('E2E Tests') {
+            when {
+                anyOf {
+                    changeRequest()  // All PRs
+                    branch 'main'
+                    branch 'develop'
+                }
+            }
+            agent { label 'e2e' }
+            steps {
+                script {
+                    def reason = env.CHANGE_ID ? "PR #${env.CHANGE_ID}" : "protected branch ${env.BRANCH_NAME}"
+                    echo "Running E2E tests for ${reason}"
+
+                    runE2ETests(
+                        browsers: ['chromium'],
+                        statusContext: 'jenkins/e2e'
+                    )
+                }
+            }
+        }
+
+        // BRANCH-SPECIFIC: Deploy to staging from develop
+        stage('Deploy to Staging') {
+            when {
+                branch 'develop'
+            }
+            steps {
+                script {
+                    echo "=== Deploying to Staging Environment ==="
+                    echo "Branch: ${env.BRANCH_NAME}"
+                    echo "Commit: ${env.GIT_COMMIT_SHORT}"
+
+                    // Report deployment status
+                    githubStatusReporter(
+                        status: 'pending',
+                        context: 'jenkins/deploy-staging',
+                        description: 'Deploying to staging'
+                    )
+
+                    // TODO: Add staging deployment steps
+                    // Example:
+                    // sh './scripts/deploy.sh staging'
+                    // or use a deployment library function
+
+                    echo "Staging deployment placeholder - implement deployment steps"
+
+                    githubStatusReporter(
+                        status: 'success',
+                        context: 'jenkins/deploy-staging',
+                        description: 'Deployed to staging'
+                    )
+                }
+            }
+        }
+
+        // BRANCH-SPECIFIC: Deploy to production from main
+        stage('Deploy to Production') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    echo "=== Deploying to Production Environment ==="
+                    echo "Branch: ${env.BRANCH_NAME}"
+                    echo "Commit: ${env.GIT_COMMIT_SHORT}"
+
+                    // Report deployment status
+                    githubStatusReporter(
+                        status: 'pending',
+                        context: 'jenkins/deploy-production',
+                        description: 'Deploying to production'
+                    )
+
+                    // TODO: Add production deployment steps
+                    // Example:
+                    // sh './scripts/deploy.sh production'
+                    // or use a deployment library function
+
+                    echo "Production deployment placeholder - implement deployment steps"
+
+                    githubStatusReporter(
+                        status: 'success',
+                        context: 'jenkins/deploy-production',
+                        description: 'Deployed to production'
+                    )
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            publishReports(
+                junit: true,
+                allure: true,
+                coverage: true
+            )
+        }
+        success {
+            script {
+                def buildType = env.CHANGE_ID ? "PR #${env.CHANGE_ID}" : env.BRANCH_NAME
+                githubStatusReporter(
+                    status: 'success',
+                    context: 'jenkins/ci',
+                    description: "Build succeeded for ${buildType}"
+                )
+            }
+        }
+        failure {
+            script {
+                def buildType = env.CHANGE_ID ? "PR #${env.CHANGE_ID}" : env.BRANCH_NAME
+                githubStatusReporter(
+                    status: 'failure',
+                    context: 'jenkins/ci',
+                    description: "Build failed for ${buildType}"
+                )
+
+                // Analyze test failures if results exist
+                if (fileExists('test-results.json')) {
+                    analyzeTestFailures(
+                        testResultsFile: 'test-results.json',
+                        maxIssues: 10
+                    )
+                }
+            }
+        }
+        cleanup {
+            dockerCleanup()
+            cleanWs()
+        }
+    }
+}
