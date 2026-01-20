@@ -315,3 +315,30 @@ jobs:
         }
       }
 
+  # ==========================================================================
+  # Nightly Build - Scheduled comprehensive tests
+  # ==========================================================================
+  - script: |
+      pipelineJob('KinDash-nightly') {
+        description('Nightly comprehensive build - full test suite, security audits')
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url('https://github.com/steiner385/kindash-jenkins-lib.git')
+                  credentials('github-credentials')
+                }
+                branch('*/main')
+              }
+            }
+            scriptPath('Jenkinsfile.nightly')
+          }
+        }
+        triggers {
+          cron('0 1 * * *')
+        }
+        logRotator {
+          numToKeep(14)
+        }
+      }

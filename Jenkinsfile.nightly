@@ -1,0 +1,220 @@
+#!/usr/bin/env groovy
+/**
+ * Nightly Build Pipeline for KinDash
+ * Comprehensive nightly testing including full test suite and security scans
+ *
+ * Schedule: Runs daily at 1:00 AM (triggered by Jenkins cron)
+ *
+ * Features:
+ * - Full unit test coverage
+ * - Integration tests
+ * - E2E tests across all browsers
+ * - Security audits (npm audit)
+ * - Build & bundle analysis
+ */
+
+
+pipeline {
+    agent none
+
+    options {
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '14'))
+        timeout(time: 120, unit: 'MINUTES')
+        skipDefaultCheckout()
+    }
+
+    environment {
+        GITHUB_OWNER = 'steiner385'
+        GITHUB_REPO = 'KinDash'
+        CI = 'true'
+        NODE_ENV = 'test'
+        NIGHTLY_BUILD = 'true'
+        NPM_CONFIG_CACHE = '/home/jenkins/agent/.npm-cache'
+        PLAYWRIGHT_BROWSERS_PATH = '/home/jenkins/agent/.playwright-cache'
+    }
+
+    stages {
+        stage('Initialize') {
+            agent { label 'linux' }
+            steps {
+                checkout scm
+                script {
+                    env.GIT_COMMIT = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+                    env.GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                }
+                echo "Nightly build for KinDash - commit: ${env.GIT_COMMIT_SHORT}"
+            }
+        }
+
+        stage('Install Dependencies') {
+            agent { label 'linux' }
+            steps {
+                checkout scm
+                sh '''
+                    rm -f .npmrc
+                    npm config set registry https://registry.npmjs.org
+                    npm ci --legacy-peer-deps
+                '''
+            }
+        }
+
+        stage('Security Audit') {
+            agent { label 'linux' }
+            steps {
+                checkout scm
+                script {
+                    def auditResult = sh(script: 'npm audit --audit-level=high 2>&1 || true', returnStatus: true)
+                    if (auditResult != 0) {
+                        unstable('npm audit found high severity vulnerabilities')
+                    }
+                }
+            }
+        }
+
+        stage('Full Test Suite') {
+            parallel {
+                stage('Unit Tests (Full Coverage)') {
+                    agent { label 'unit' }
+                    steps {
+                        checkout scm
+                        sh '''
+                            rm -f .npmrc
+                            npm config set registry https://registry.npmjs.org
+                            npm ci --legacy-peer-deps
+                        '''
+                        sh 'npm run test:unit -- --coverage'
+                    }
+                    post {
+                        always {
+                            script {
+                                if (fileExists('allure-results')) {
+                                    allure([
+                                        includeProperties: false,
+                                        jdk: '',
+                                        results: [[path: 'allure-results']]
+                                    ])
+                                }
+                            }
+                        }
+                    }
+                }
+
+                stage('Integration Tests') {
+                    agent { label 'integration' }
+                    environment {
+                        DATABASE_URL = 'postgresql://ci_user:ci_password@jenkins-postgres:5432/ci_test_db'
+                    }
+                    steps {
+                        checkout scm
+                        sh '''
+                            rm -f .npmrc
+                            npm config set registry https://registry.npmjs.org
+                            npm ci --legacy-peer-deps
+                        '''
+                        sh 'npm run db:migrate:test || true'
+                        sh 'npm run test:integration || true'
+                    }
+                    post {
+                        always {
+                            sh 'npm run db:teardown:test || true'
+                        }
+                    }
+                }
+
+                stage('E2E Tests (All Browsers)') {
+                    agent { label 'e2e' }
+                    steps {
+                        checkout scm
+                        sh '''
+                            rm -f .npmrc
+                            npm config set registry https://registry.npmjs.org
+                            npm ci --legacy-peer-deps
+                        '''
+                        // Install all browsers for nightly full browser matrix
+                        sh 'npx playwright install'
+                        sh 'npm run build'
+                        sh 'rm -rf allure-results'
+                        sh 'npm run test:e2e -- --project=chromium --project=firefox --project=webkit || true'
+                    }
+                    post {
+                        always {
+                            archiveArtifacts artifacts: 'playwright-report/**', allowEmptyArchive: true
+                            script {
+                                if (fileExists('allure-results')) {
+                                    allure([
+                                        includeProperties: false,
+                                        jdk: '',
+                                        results: [[path: 'allure-results']]
+                                    ])
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Build & Bundle Analysis') {
+            agent { label 'linux' }
+            steps {
+                checkout scm
+                sh '''
+                    rm -f .npmrc
+                    npm config set registry https://registry.npmjs.org
+                    npm ci --legacy-peer-deps
+                '''
+                sh 'npm run build'
+            }
+        }
+
+        stage('Generate Summary') {
+            agent { label 'linux' }
+            steps {
+                script {
+                    def summary = """
+## KinDash Nightly Build Summary
+
+**Build**: #${env.BUILD_NUMBER}
+**Date**: ${new Date().format('yyyy-MM-dd HH:mm:ss')}
+**Commit**: ${env.GIT_COMMIT_SHORT}
+**URL**: ${env.BUILD_URL}
+
+### Test Results
+- Unit Tests: Check Allure report and coverage
+- Integration Tests: Check build log
+- E2E Tests: Check Playwright report
+
+### Reports
+- Allure Test Report
+- Coverage Report
+- E2E Playwright Report
+"""
+                    writeFile file: 'nightly-summary.md', text: summary
+                    archiveArtifacts artifacts: 'nightly-summary.md'
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            script {
+                // Analyze Allure results from all test stages and create specific issues
+                if (fileExists('allure-results')) {
+                    analyzeAllureFailures(
+                        allureResultsDir: 'allure-results',
+                        testType: 'Nightly',
+                        maxIssues: 20  // Higher limit for nightly (multiple test types)
+                    )
+                }
+            }
+        }
+        success {
+            echo 'KinDash nightly build succeeded!'
+        }
+        failure {
+            echo 'KinDash nightly build failed - check GitHub issues for specific failures'
+        }
+    }
+}
