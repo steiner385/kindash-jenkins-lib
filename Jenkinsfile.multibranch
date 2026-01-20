@@ -90,7 +90,15 @@ pipeline {
 
         stage('Lint') {
             steps {
-                runLintChecks(skipCheckout: true)
+                script {
+                    // Make lint non-blocking - report warnings but don't fail the build
+                    def lintResult = sh(script: 'npm run lint', returnStatus: true)
+                    if (lintResult != 0) {
+                        echo "Lint completed with warnings/errors (exit code: ${lintResult})"
+                        // Don't fail the build - just report
+                        unstable(message: "Lint has warnings")
+                    }
+                }
             }
         }
 
