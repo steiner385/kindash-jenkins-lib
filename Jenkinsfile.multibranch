@@ -82,6 +82,12 @@ pipeline {
             }
         }
 
+        stage('Build Packages') {
+            steps {
+                sh 'npm run build:packages || true'
+            }
+        }
+
         stage('Lint') {
             steps {
                 runLintChecks(skipCheckout: true)
@@ -110,6 +116,7 @@ pipeline {
         always {
             publishReports(
                 junit: true,
+                allure: true,
                 coverage: true
             )
         }
