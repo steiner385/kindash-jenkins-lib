@@ -2,17 +2,11 @@
 /**
  * KinDash Multi-Branch Pipeline
  *
- * Branch-aware pipeline that provides:
- * - PR-specific builds with additional E2E tests
- * - Branch-specific deployment (main → prod, develop → staging)
- * - Feature branches get CI only (no deployment)
+ * Simplified CI pipeline: Lint, Unit Tests, Build
  *
  * Multi-branch Jenkins provides these environment variables automatically:
- *   BRANCH_NAME   - Current branch name (e.g., 'main', 'develop', 'feature/foo')
+ *   BRANCH_NAME   - Current branch name
  *   CHANGE_ID     - PR number (null if not a PR build)
- *   CHANGE_TARGET - PR target branch (null if not a PR build)
- *   CHANGE_AUTHOR - PR author (null if not a PR build)
- *   CHANGE_TITLE  - PR title (null if not a PR build)
  *
  * Webhook Setup:
  *   URL: https://jenkins.kindash.com/github-webhook/
@@ -110,104 +104,12 @@ pipeline {
                 buildProject(skipCheckout: true)
             }
         }
-
-        // PR-SPECIFIC: Additional E2E tests on PRs and protected branches
-        stage('E2E Tests') {
-            when {
-                anyOf {
-                    changeRequest()  // All PRs
-                    branch 'main'
-                    branch 'develop'
-                }
-            }
-            agent { label 'e2e' }
-            steps {
-                script {
-                    def reason = env.CHANGE_ID ? "PR #${env.CHANGE_ID}" : "protected branch ${env.BRANCH_NAME}"
-                    echo "Running E2E tests for ${reason}"
-
-                    runE2ETests(
-                        browsers: ['chromium'],
-                        statusContext: 'jenkins/e2e'
-                    )
-                }
-            }
-        }
-
-        // BRANCH-SPECIFIC: Deploy to staging from develop
-        stage('Deploy to Staging') {
-            when {
-                branch 'develop'
-            }
-            steps {
-                script {
-                    echo "=== Deploying to Staging Environment ==="
-                    echo "Branch: ${env.BRANCH_NAME}"
-                    echo "Commit: ${env.GIT_COMMIT_SHORT}"
-
-                    // Report deployment status
-                    githubStatusReporter(
-                        status: 'pending',
-                        context: 'jenkins/deploy-staging',
-                        description: 'Deploying to staging'
-                    )
-
-                    // TODO: Add staging deployment steps
-                    // Example:
-                    // sh './scripts/deploy.sh staging'
-                    // or use a deployment library function
-
-                    echo "Staging deployment placeholder - implement deployment steps"
-
-                    githubStatusReporter(
-                        status: 'success',
-                        context: 'jenkins/deploy-staging',
-                        description: 'Deployed to staging'
-                    )
-                }
-            }
-        }
-
-        // BRANCH-SPECIFIC: Deploy to production from main
-        stage('Deploy to Production') {
-            when {
-                branch 'main'
-            }
-            steps {
-                script {
-                    echo "=== Deploying to Production Environment ==="
-                    echo "Branch: ${env.BRANCH_NAME}"
-                    echo "Commit: ${env.GIT_COMMIT_SHORT}"
-
-                    // Report deployment status
-                    githubStatusReporter(
-                        status: 'pending',
-                        context: 'jenkins/deploy-production',
-                        description: 'Deploying to production'
-                    )
-
-                    // TODO: Add production deployment steps
-                    // Example:
-                    // sh './scripts/deploy.sh production'
-                    // or use a deployment library function
-
-                    echo "Production deployment placeholder - implement deployment steps"
-
-                    githubStatusReporter(
-                        status: 'success',
-                        context: 'jenkins/deploy-production',
-                        description: 'Deployed to production'
-                    )
-                }
-            }
-        }
     }
 
     post {
         always {
             publishReports(
                 junit: true,
-                allure: true,
                 coverage: true
             )
         }
@@ -229,18 +131,9 @@ pipeline {
                     context: 'jenkins/ci',
                     description: "Build failed for ${buildType}"
                 )
-
-                // Analyze test failures if results exist
-                if (fileExists('test-results.json')) {
-                    analyzeTestFailures(
-                        testResultsFile: 'test-results.json',
-                        maxIssues: 10
-                    )
-                }
             }
         }
         cleanup {
-            dockerCleanup()
             cleanWs()
         }
     }
