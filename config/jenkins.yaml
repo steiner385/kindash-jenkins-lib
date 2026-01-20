@@ -243,12 +243,11 @@ credentials:
 
 # Job Definitions
 # All jobs load Jenkinsfiles from this lib repo, NOT from the application repo
-# Triggers are defined in Jenkinsfiles (GenericTrigger), not here
 jobs:
   # ==========================================================================
-  # NEW: Multi-branch Pipeline (replaces KinDash-ci after migration)
+  # Multi-branch Pipeline - Primary CI/CD
   # ==========================================================================
-  # This creates per-branch/PR jobs automatically with:
+  # Automatically builds all branches and PRs with:
   # - PR-specific builds with E2E tests
   # - Branch-specific deployment (main → prod, develop → staging)
   # - Orphan branch cleanup after 60 days
@@ -316,127 +315,3 @@ jobs:
         }
       }
 
-  # ==========================================================================
-  # EXISTING JOBS (keep during migration period, remove after 2 weeks stable)
-  # ==========================================================================
-
-  # Main CI Pipeline - triggered by webhook (GenericTrigger in Jenkinsfile)
-  - script: |
-      pipelineJob('KinDash-ci') {
-        description('KinDash CI Pipeline - triggered by GitHub webhook')
-        definition {
-          cpsScm {
-            scm {
-              git {
-                remote {
-                  url('https://github.com/steiner385/kindash-jenkins-lib.git')
-                  credentials('github-credentials')
-                }
-                branch('*/main')
-              }
-            }
-            scriptPath('Jenkinsfile')
-          }
-        }
-        properties {
-          githubProjectUrl('https://github.com/steiner385/KinDash')
-        }
-        logRotator {
-          numToKeep(30)
-        }
-      }
-
-  # Nightly Build - cron triggered
-  - script: |
-      pipelineJob('KinDash-nightly') {
-        description('Nightly comprehensive build - full test suite, security audits')
-        definition {
-          cpsScm {
-            scm {
-              git {
-                remote {
-                  url('https://github.com/steiner385/kindash-jenkins-lib.git')
-                  credentials('github-credentials')
-                }
-                branch('*/main')
-              }
-            }
-            scriptPath('Jenkinsfile.nightly')
-          }
-        }
-        triggers {
-          cron('0 1 * * *')
-        }
-        logRotator {
-          numToKeep(14)
-        }
-      }
-
-  # Unit Tests - manually triggered
-  - script: |
-      pipelineJob('KinDash-unit') {
-        description('Run KinDash unit tests only')
-        definition {
-          cpsScm {
-            scm {
-              git {
-                remote {
-                  url('https://github.com/steiner385/kindash-jenkins-lib.git')
-                  credentials('github-credentials')
-                }
-                branch('*/main')
-              }
-            }
-            scriptPath('Jenkinsfile.unit')
-          }
-        }
-        logRotator {
-          numToKeep(30)
-        }
-      }
-
-  # Integration Tests - manually triggered
-  - script: |
-      pipelineJob('KinDash-integration') {
-        description('Run KinDash integration tests only')
-        definition {
-          cpsScm {
-            scm {
-              git {
-                remote {
-                  url('https://github.com/steiner385/kindash-jenkins-lib.git')
-                  credentials('github-credentials')
-                }
-                branch('*/main')
-              }
-            }
-            scriptPath('Jenkinsfile.integration')
-          }
-        }
-        logRotator {
-          numToKeep(30)
-        }
-      }
-
-  # E2E Tests - manually triggered
-  - script: |
-      pipelineJob('KinDash-e2e') {
-        description('Run KinDash E2E tests only')
-        definition {
-          cpsScm {
-            scm {
-              git {
-                remote {
-                  url('https://github.com/steiner385/kindash-jenkins-lib.git')
-                  credentials('github-credentials')
-                }
-                branch('*/main')
-              }
-            }
-            scriptPath('Jenkinsfile.e2e')
-          }
-        }
-        logRotator {
-          numToKeep(30)
-        }
-      }
