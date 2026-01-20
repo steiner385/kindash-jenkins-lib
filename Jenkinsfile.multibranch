@@ -57,10 +57,19 @@ pipeline {
                     }
                     echo "=========================="
 
-                    // Report pending status to GitHub
+                    // Report pending status to GitHub for both contexts
+                    // jenkins/ci - our custom status
                     githubStatusReporter(
                         status: 'pending',
                         context: 'jenkins/ci',
+                        description: "Build started for ${buildType}"
+                    )
+                    // continuous-integration/jenkins/* - matches GitHub Branch Source plugin context
+                    // The plugin sets this to pending but sometimes fails to update on completion
+                    def ciContext = env.CHANGE_ID ? 'continuous-integration/jenkins/pr-head' : 'continuous-integration/jenkins/branch'
+                    githubStatusReporter(
+                        status: 'pending',
+                        context: ciContext,
                         description: "Build started for ${buildType}"
                     )
                 }
@@ -131,20 +140,36 @@ pipeline {
         success {
             script {
                 def buildType = env.CHANGE_ID ? "PR #${env.CHANGE_ID}" : env.BRANCH_NAME
+                def ciContext = env.CHANGE_ID ? 'continuous-integration/jenkins/pr-head' : 'continuous-integration/jenkins/branch'
+
+                // Report success to both contexts
                 githubStatusReporter(
                     status: 'success',
                     context: 'jenkins/ci',
                     description: "Build succeeded for ${buildType}"
+                )
+                githubStatusReporter(
+                    status: 'success',
+                    context: ciContext,
+                    description: "This commit looks good"
                 )
             }
         }
         failure {
             script {
                 def buildType = env.CHANGE_ID ? "PR #${env.CHANGE_ID}" : env.BRANCH_NAME
+                def ciContext = env.CHANGE_ID ? 'continuous-integration/jenkins/pr-head' : 'continuous-integration/jenkins/branch'
+
+                // Report failure to both contexts
                 githubStatusReporter(
                     status: 'failure',
                     context: 'jenkins/ci',
                     description: "Build failed for ${buildType}"
+                )
+                githubStatusReporter(
+                    status: 'failure',
+                    context: ciContext,
+                    description: "This commit failed tests or other validations"
                 )
             }
         }
