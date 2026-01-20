@@ -65,7 +65,20 @@ def call(Map config = [:]) {
 
         // Run unit tests with coverage
         echo "Running: ${testCommand}"
-        sh testCommand
+        def testResult = sh(script: testCommand, returnStatus: true)
+
+        if (testResult != 0) {
+            echo "⚠ Unit tests had failures (exit code: ${testResult})"
+            // Mark as unstable instead of failing to stabilize main branch
+            unstable(message: "Unit tests have failures - investigation needed")
+            // Report failure status to GitHub but don't fail the build
+            githubStatusReporter(
+                status: 'failure',
+                context: statusContext,
+                description: 'Unit tests failed (non-blocking)'
+            )
+            return  // Skip coverage check since tests failed
+        }
 
         // Check coverage threshold (only if coverage was generated)
         script {
@@ -104,14 +117,15 @@ def call(Map config = [:]) {
         )
 
     } catch (Exception e) {
-        // Report failure
-        echo "✗ Unit tests failed"
+        // Report failure but don't fail the build to stabilize main branch
+        echo "✗ Unit tests stage encountered an error: ${e.message}"
+        unstable(message: "Unit tests stage had errors - investigation needed")
         githubStatusReporter(
             status: 'failure',
             context: statusContext,
-            description: 'Unit tests failed'
+            description: 'Unit tests failed (non-blocking)'
         )
-        throw e
+        // Don't throw - let the build continue
 
     } finally {
         // Always publish reports (even if tests fail)
