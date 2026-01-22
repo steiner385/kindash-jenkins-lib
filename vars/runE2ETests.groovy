@@ -78,6 +78,26 @@ def call(Map config = [:]) {
             # Prune unused networks (cleans up disconnected network endpoints)
             echo "Pruning unused Docker networks..."
             docker network prune -f 2>/dev/null || true
+
+            # CRITICAL: Check for any containers that might be holding our ports
+            # even if they're not in our compose file (orphaned from previous runs)
+            echo "Checking for any containers using our E2E ports..."
+            for port in 5433 3010; do
+                # Find containers publishing to this port and remove them
+                CONTAINER_IDS=$(docker ps -a --format '{{.ID}}:{{.Ports}}' | grep ":$port->" | cut -d: -f1)
+                if [ -n "$CONTAINER_IDS" ]; then
+                    echo "Found containers using port $port, removing them..."
+                    echo "$CONTAINER_IDS" | xargs -r docker rm -f 2>/dev/null || true
+                fi
+            done
+
+            # Additional cleanup: Remove any dangling containers that might hold port state
+            echo "Removing dangling containers..."
+            docker container prune -f 2>/dev/null || true
+
+            # Give Docker a moment to release internal port allocations
+            echo "Waiting for Docker to release port allocations..."
+            sleep 2
         '''
 
         // Remove volumes and networks for clean start
