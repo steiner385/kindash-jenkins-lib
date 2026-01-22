@@ -1,12 +1,14 @@
 #!/usr/bin/env groovy
 /**
  * Run E2E Tests Stage
- * Executes end-to-end tests with full infrastructure setup
+ * Executes end-to-end tests with full Docker infrastructure setup
  *
  * Features:
- * - Pre/post Docker cleanup
+ * - Full Docker infrastructure orchestration (app + postgres)
+ * - Playwright-in-container approach for reliable network access
+ * - Pre/post Docker cleanup with comprehensive port management
  * - Resource locking (test-infrastructure)
- * - Playwright browser installation
+ * - Playwright browser installation with caching
  * - GitHub status reporting
  * - Playwright and Allure report publishing
  *
@@ -19,10 +21,10 @@
 def call(Map config = [:]) {
     def statusContext = config.statusContext ?: 'jenkins/e2e'
     def pm = pipelineHelpers.getPackageManager()
-    def testCommand = config.testCommand ?: "${pm.run} test:e2e"
+    def testCommand = config.testCommand ?: "${pm.run} test:e2e:baseline"
     def lockResource = config.lockResource ?: 'test-infrastructure'
-    def composeFile = config.composeFile ?: 'deployment/docker/docker-compose.test.yml'
-    def ports = config.ports ?: pipelineHelpers.getServicePorts()
+    def composeFile = config.composeFile ?: 'docker/docker-compose.e2e.yml'
+    def ports = config.ports ?: [3010, 5433]  // E2E app and postgres ports
     def browsers = config.browsers ?: ['chromium']
     def skipLock = config.skipLock ?: false
     def skipCheckout = config.skipCheckout ?: false
@@ -36,12 +38,30 @@ def call(Map config = [:]) {
     installDependencies()
 
     // Pre-cleanup: Ensure clean environment
-    echo "Cleaning up previous test artifacts..."
+    echo "Cleaning up previous test artifacts and containers..."
     dockerCleanup(
         composeFile: composeFile,
         ports: ports,
         cleanLockfiles: true
     )
+
+    // Remove any existing E2E containers
+    sh '''
+        docker stop kindash-e2e-app kindash-e2e-postgres 2>/dev/null || true
+        docker rm -f kindash-e2e-app kindash-e2e-postgres 2>/dev/null || true
+        docker ps -a -q -f "name=playwright-e2e-runner" | xargs -r docker rm -f 2>/dev/null || true
+    '''
+
+    // Remove volumes and networks for clean start
+    dockerCompose.safe('down -v --remove-orphans', composeFile)
+
+    // Kill any processes on E2E ports
+    sh '''
+        for port in 5433 3010; do
+            fuser -k $port/tcp 2>/dev/null || true
+        done
+        sleep 5
+    '''
 
     try {
         // Define the test execution closure
@@ -53,14 +73,127 @@ def call(Map config = [:]) {
                 description: 'E2E tests running'
             )
 
+            // Build Docker images
+            echo "Building E2E Docker images..."
+            dockerCompose('build --parallel', composeFile)
+
+            // Start E2E infrastructure (app + postgres)
+            echo "Starting E2E infrastructure..."
+            dockerCompose('up -d', composeFile)
+
+            // Wait for postgres to be ready
+            echo "Waiting for PostgreSQL..."
+            sh '''
+                for i in $(seq 1 30); do
+                    docker exec kindash-e2e-postgres pg_isready -U testuser -d kindash_e2e_test && break
+                    echo "Waiting for postgres... $i/30"
+                    sleep 2
+                done
+            '''
+
+            // Wait for app using curl container on the E2E network
+            echo "Waiting for app to be healthy..."
+            sh '''
+                APP_HEALTHY=false
+                for i in $(seq 1 60); do
+                    # Check health from INSIDE the Docker network using curl container
+                    if docker run --rm --network kindash-e2e-network curlimages/curl:latest \
+                        curl -f -s "http://kindash-e2e-app:3010/api/health" > /dev/null 2>&1; then
+                        echo "App is healthy on E2E network!"
+                        APP_HEALTHY=true
+                        break
+                    fi
+                    echo "Waiting for app... $i/60"
+                    sleep 2
+                done
+
+                if [ "$APP_HEALTHY" = "false" ]; then
+                    echo "App failed to start:"
+                    docker logs kindash-e2e-app --tail 100
+                    exit 1
+                fi
+            '''
+
             // Install Playwright browsers if not cached
             playwrightSetup(browsers: browsers)
 
-            // Clean previous Allure results
-            sh 'rm -rf allure-results'
+            // Run Playwright tests INSIDE a Docker container on the same network
+            echo "Running Playwright tests inside Docker container..."
+            sh '''
+                CONTAINER_NAME="playwright-e2e-runner-$$"
 
-            // Run E2E tests
-            sh testCommand
+                echo "Creating Playwright container: $CONTAINER_NAME"
+                echo "Network: kindash-e2e-network"
+                echo "Base URL: http://kindash-e2e-app:3010"
+
+                # Create Playwright container on the E2E network
+                docker run -d \
+                    --name "$CONTAINER_NAME" \
+                    --network kindash-e2e-network \
+                    -w /app \
+                    -e CI=true \
+                    -e E2E_DOCKER=true \
+                    -e PLAYWRIGHT_BASE_URL=http://kindash-e2e-app:3010 \
+                    -e USE_EXISTING_SERVER=true \
+                    -e E2E_BASE_URL=http://kindash-e2e-app:3010 \
+                    -e BASE_URL=http://kindash-e2e-app:3010 \
+                    -e PORT=3010 \
+                    mcr.microsoft.com/playwright:v1.57.0-noble \
+                    sleep infinity
+
+                # Copy project files using tar to handle any symlinks
+                echo "Copying project files to container..."
+                tar -chf - \
+                    --exclude=node_modules \
+                    --exclude=.git \
+                    --exclude=dist-* \
+                    --exclude=coverage \
+                    --exclude=playwright-report \
+                    --exclude=test-results \
+                    --exclude=allure-results \
+                    . | docker exec -i "$CONTAINER_NAME" tar -xf - -C /app/
+
+                echo "Files copied. Installing dependencies..."
+
+                # Run npm install and Playwright tests inside the container
+                docker exec "$CONTAINER_NAME" bash -c "
+                    echo 'Installing npm dependencies...'
+                    npm config set registry https://registry.npmjs.org
+                    npm install --legacy-peer-deps --no-audit --no-fund 2>&1 || {
+                        echo 'npm install failed'
+                        exit 1
+                    }
+
+                    echo 'Running Playwright tests...'
+                    echo 'Base URL: \$E2E_BASE_URL'
+                    echo '=========================================='
+
+                    npx playwright test --reporter=list,junit,allure-playwright
+                " || {
+                    EXIT_CODE=$?
+                    echo "Playwright tests exited with code $EXIT_CODE"
+
+                    # Copy results even on failure
+                    docker cp "$CONTAINER_NAME":/app/playwright-report ./playwright-report 2>/dev/null || true
+                    docker cp "$CONTAINER_NAME":/app/test-results ./test-results 2>/dev/null || true
+                    docker cp "$CONTAINER_NAME":/app/allure-results ./allure-results 2>/dev/null || true
+
+                    # Cleanup container
+                    docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+                    exit $EXIT_CODE
+                }
+
+                # Copy test results back to workspace
+                echo "Copying test results..."
+                docker cp "$CONTAINER_NAME":/app/playwright-report ./playwright-report 2>/dev/null || true
+                docker cp "$CONTAINER_NAME":/app/test-results ./test-results 2>/dev/null || true
+                docker cp "$CONTAINER_NAME":/app/allure-results ./allure-results 2>/dev/null || true
+
+                # Cleanup container
+                docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+
+                echo "Playwright tests completed successfully"
+            }
         }
 
         // Run tests with or without lock
@@ -86,6 +219,11 @@ def call(Map config = [:]) {
             context: statusContext,
             description: 'E2E tests failed'
         )
+
+        // Show service logs for debugging
+        echo "=== Service Logs (last 50 lines) ==="
+        dockerCompose.safe('logs --tail=50', composeFile)
+
         throw e
 
     } finally {
@@ -97,6 +235,9 @@ def call(Map config = [:]) {
 
         // Post-cleanup: Ensure Docker containers and ports are freed
         echo "Post-test cleanup..."
+        sh 'docker ps -a -q -f "name=playwright-e2e-runner" | xargs -r docker rm -f 2>/dev/null || true'
+        dockerCompose.safe('down -v', composeFile)
+
         dockerCleanup(
             composeFile: composeFile,
             ports: ports,

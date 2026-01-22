@@ -5,7 +5,7 @@
  * This is the actual pipeline definition, called from the minimal stub Jenkinsfile
  * in the main KinDash repo.
  *
- * Full CI pipeline: Lint, Unit Tests, Build
+ * Full CI pipeline: Lint, Unit Tests, E2E Tests, Build
  *
  * Multi-branch Jenkins provides these environment variables automatically:
  *   BRANCH_NAME   - Current branch name
@@ -29,6 +29,11 @@ def call() {
             NODE_OPTIONS = '--max-old-space-size=6144'
 
             // Multi-branch provides BRANCH_NAME, CHANGE_ID, CHANGE_TARGET automatically
+
+            // Unique project name per build for E2E Docker Compose isolation
+            // This prevents container name conflicts across concurrent builds
+            // Image caching still works because docker-compose.e2e.yml uses explicit image: tags
+            E2E_PROJECT_NAME = "e2e-build-${env.BUILD_NUMBER ?: 'local'}"
         }
 
         options {
@@ -44,7 +49,7 @@ def call() {
                     script {
                         // ✅ Only build PRs and protected branches (prevents duplicate builds)
                         def isPR = env.CHANGE_ID != null
-                        def isProtectedBranch = env.BRANCH_NAME in ['main', 'staging'] || env.BRANCH_NAME?.startsWith('deploy/')
+                        def isProtectedBranch = env.BRANCH_NAME in ['main', 'develop', 'staging'] || env.BRANCH_NAME?.startsWith('deploy/')
 
                         if (!isPR && !isProtectedBranch) {
                             echo "Skipping build for branch: ${env.BRANCH_NAME}"
@@ -74,6 +79,12 @@ def call() {
 
                     // Checkout the KinDash application repo (multi-branch SCM)
                     checkout scm
+
+                    // Remove stale test directories and coverage files from previous builds
+                    sh '''
+                        rm -rf coverage || true
+                        find . -path "*/coverage/*" -name "*.xml" -delete 2>/dev/null || true
+                    '''
 
                     script {
                         env.GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
@@ -127,6 +138,50 @@ def call() {
                         runUnitTests(
                             skipCheckout: true,
                             coverageThreshold: 70
+                        )
+                    }
+                }
+            }
+
+            stage('E2E Tests') {
+                // Run E2E on main, develop, and PRs targeting them
+                when {
+                    anyOf {
+                        branch 'main'
+                        branch 'develop'
+                        changeRequest target: 'main'
+                        changeRequest target: 'develop'
+                    }
+                }
+                steps {
+                    script {
+                        try {
+                            echo "=== Running E2E Tests ==="
+                            echo "Branch: ${env.BRANCH_NAME}"
+                            echo "Test Suite: Playwright (Docker-based infrastructure)"
+                            echo "Environment: Full production-like stack (app + postgres)"
+
+                            runE2ETests(
+                                skipCheckout: true,
+                                browsers: ['chromium']
+                            )
+
+                            echo "=== E2E Tests Complete ==="
+
+                        } catch (Exception e) {
+                            echo "⚠️  E2E tests failed"
+                            echo "Error: ${e.message}"
+                            // Mark as unstable but don't fail the build
+                            // E2E tests can have flaky issues, but we want to know about them
+                            currentBuild.result = 'UNSTABLE'
+                        }
+                    }
+                }
+                post {
+                    always {
+                        publishReports(
+                            playwright: true,
+                            allure: true
                         )
                     }
                 }
