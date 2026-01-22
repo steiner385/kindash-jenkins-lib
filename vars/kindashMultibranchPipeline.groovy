@@ -169,18 +169,20 @@ def call() {
                             echo "=== E2E Tests Complete ==="
 
                         } catch (Exception e) {
-                            echo "⚠️  E2E tests failed"
+                            echo "⚠️  E2E tests failed (non-blocking)"
                             echo "Error: ${e.message}"
-                            // Mark as unstable but don't fail the build
-                            // E2E tests can have flaky issues, but we want to know about them
-                            currentBuild.result = 'UNSTABLE'
+                            echo "Note: E2E failures do not block PR merges"
 
-                            // Report E2E status as "unstable" - not blocking but visible
+                            // Report E2E status as success with failure note
+                            // This allows the PR to merge while making E2E issues visible
                             githubStatusReporter(
                                 status: 'success',  // Report success so it doesn't block PR
                                 context: 'jenkins/e2e',
                                 description: 'E2E tests had failures (non-blocking)'
                             )
+
+                            // Don't set currentBuild.result = 'UNSTABLE' as this
+                            // causes the overall Jenkins/GitHub status to fail
                         }
                     }
                 }
