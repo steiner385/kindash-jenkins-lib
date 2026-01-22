@@ -145,6 +145,7 @@ def call() {
 
             stage('E2E Tests') {
                 // Run E2E on main, develop, and PRs targeting them
+                // E2E tests are REQUIRED - failures will block PR merges
                 when {
                     anyOf {
                         branch 'main'
@@ -155,35 +156,19 @@ def call() {
                 }
                 steps {
                     script {
-                        try {
-                            echo "=== Running E2E Tests ==="
-                            echo "Branch: ${env.BRANCH_NAME}"
-                            echo "Test Suite: Playwright (Docker-based infrastructure)"
-                            echo "Environment: Full production-like stack (app + postgres)"
+                        echo "=== Running E2E Tests (REQUIRED) ==="
+                        echo "Branch: ${env.BRANCH_NAME}"
+                        echo "Test Suite: Playwright (Docker-based infrastructure)"
+                        echo "Environment: Full production-like stack (app + postgres)"
+                        echo "Note: E2E tests must pass for PR to be mergeable"
 
-                            runE2ETests(
-                                skipCheckout: true,
-                                browsers: ['chromium']
-                            )
+                        // E2E tests are strictly enforced - failures will fail the build
+                        runE2ETests(
+                            skipCheckout: true,
+                            browsers: ['chromium']
+                        )
 
-                            echo "=== E2E Tests Complete ==="
-
-                        } catch (Exception e) {
-                            echo "⚠️  E2E tests failed (non-blocking)"
-                            echo "Error: ${e.message}"
-                            echo "Note: E2E failures do not block PR merges"
-
-                            // Report E2E status as success with failure note
-                            // This allows the PR to merge while making E2E issues visible
-                            githubStatusReporter(
-                                status: 'success',  // Report success so it doesn't block PR
-                                context: 'jenkins/e2e',
-                                description: 'E2E tests had failures (non-blocking)'
-                            )
-
-                            // Don't set currentBuild.result = 'UNSTABLE' as this
-                            // causes the overall Jenkins/GitHub status to fail
-                        }
+                        echo "=== E2E Tests Passed ==="
                     }
                 }
                 post {

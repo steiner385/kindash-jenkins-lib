@@ -345,11 +345,13 @@ def call(Map config = [:]) {
         echo "=== Service Logs (last 50 lines) ==="
         dockerCompose.safe('logs --tail=50', composeFile)
 
-        // Don't report failure to GitHub status - let pipeline handle the result
-        // This allows E2E failures to mark build as UNSTABLE instead of blocking PRs
-        // The pipeline's catch block will set currentBuild.result = 'UNSTABLE'
+        // Report failure status to GitHub - E2E tests are strictly enforced
         echo "E2E tests failed with error: ${e.message}"
-        echo "Note: E2E failure will mark build UNSTABLE but not FAILED"
+        githubStatusReporter(
+            status: 'failure',
+            context: statusContext,
+            description: 'E2E tests failed'
+        )
 
         throw e
 
