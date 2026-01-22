@@ -16,6 +16,8 @@
  *   runE2ETests()  // Use defaults
  *   runE2ETests(testCommand: 'npm run test:e2e')
  *   runE2ETests(browsers: ['chromium', 'firefox'])
+ *
+ * Version: 2025-01-22 (Build 9 - cache refresh)
  */
 
 def call(Map config = [:]) {
