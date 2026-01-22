@@ -126,6 +126,47 @@ def call(Map config = [:]) {
             echo "Building E2E Docker images..."
             dockerCompose('build --parallel', composeFile)
 
+            // CRITICAL: Re-check port availability after Docker build
+            // The build can take 30-60 seconds, during which ports might be grabbed
+            echo "Re-verifying port availability after Docker build..."
+            sh '''
+                echo "Checking if ports 5433 and 3010 are still free..."
+                for i in $(seq 1 30); do
+                    PORT_5433_FREE=true
+                    PORT_3010_FREE=true
+
+                    # Check if port 5433 is free
+                    if lsof -i :5433 -sTCP:LISTEN -t >/dev/null 2>&1 || fuser 5433/tcp >/dev/null 2>&1; then
+                        PORT_5433_FREE=false
+                    fi
+
+                    # Check if port 3010 is free
+                    if lsof -i :3010 -sTCP:LISTEN -t >/dev/null 2>&1 || fuser 3010/tcp >/dev/null 2>&1; then
+                        PORT_3010_FREE=false
+                    fi
+
+                    if [ "$PORT_5433_FREE" = "true" ] && [ "$PORT_3010_FREE" = "true" ]; then
+                        echo "✅ Ports are still free after Docker build!"
+                        break
+                    fi
+
+                    echo "⚠️  Ports in use after Docker build - killing processes and retrying... attempt $i/30"
+                    fuser -k 5433/tcp 2>/dev/null || true
+                    fuser -k 3010/tcp 2>/dev/null || true
+                    sleep 1
+                done
+
+                # Final check
+                if lsof -i :5433 -sTCP:LISTEN -t >/dev/null 2>&1 || fuser 5433/tcp >/dev/null 2>&1; then
+                    echo "❌ ERROR: Port 5433 still in use after 30 seconds - cannot start containers"
+                    exit 1
+                fi
+                if lsof -i :3010 -sTCP:LISTEN -t >/dev/null 2>&1 || fuser 3010/tcp >/dev/null 2>&1; then
+                    echo "❌ ERROR: Port 3010 still in use after 30 seconds - cannot start containers"
+                    exit 1
+                fi
+            '''
+
             // Start E2E infrastructure (app + postgres)
             // No --force-recreate since we already did aggressive cleanup
             echo "Starting E2E infrastructure..."
