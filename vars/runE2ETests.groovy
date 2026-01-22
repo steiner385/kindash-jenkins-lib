@@ -45,23 +45,12 @@ def call(Map config = [:]) {
         cleanLockfiles: true
     )
 
-    // Aggressive cleanup to avoid 'ContainerConfig' errors
+    // Pre-cleanup: Ensure clean environment
     sh '''
-        echo "Cleaning up E2E containers and volumes..."
+        echo "Cleaning up previous E2E containers and volumes..."
 
-        # Force remove ALL E2E containers (wildcards match all build numbers)
-        docker ps -a -q -f "name=kindash-e2e-app" | xargs -r docker rm -f 2>/dev/null || true
-        docker ps -a -q -f "name=kindash-e2e-postgres" | xargs -r docker rm -f 2>/dev/null || true
+        # Remove any playwright test runners
         docker ps -a -q -f "name=playwright-e2e-runner" | xargs -r docker rm -f 2>/dev/null || true
-
-        # Remove any E2E volumes explicitly
-        docker volume ls -q -f "name=docker_" | grep -E "(postgres|e2e)" | xargs -r docker volume rm -f 2>/dev/null || true
-
-        # Remove ALL E2E networks (wildcards match all build numbers)
-        docker network ls -q -f "name=kindash-e2e-network" | xargs -r docker network rm 2>/dev/null || true
-
-        # Export BUILD_NUMBER for unique container names
-        export BUILD_NUMBER=${BUILD_NUMBER}
 
         # Give Docker daemon time to process removals
         sleep 2
@@ -89,26 +78,12 @@ def call(Map config = [:]) {
     try {
         // Define the test execution closure
         def runTests = {
-            // Export BUILD_NUMBER for unique container names to avoid Docker metadata conflicts
-            env.BUILD_NUMBER = env.BUILD_NUMBER ?: 'local'
-
             // Report pending status
             githubStatusReporter(
                 status: 'pending',
                 context: statusContext,
                 description: 'E2E tests running'
             )
-
-            // Verify cleanup was successful
-            sh '''
-                echo "Verifying cleanup..."
-                if docker ps -a | grep -E "kindash-e2e-(app|postgres)-${BUILD_NUMBER}"; then
-                    echo "ERROR: Found existing E2E containers after cleanup!"
-                    docker ps -a | grep "kindash-e2e"
-                    exit 1
-                fi
-                echo "Cleanup verification passed"
-            '''
 
             // Build Docker images
             echo "Building E2E Docker images..."
@@ -120,62 +95,69 @@ def call(Map config = [:]) {
 
             // Wait for postgres to be ready
             echo "Waiting for PostgreSQL..."
-            sh '''
-                for i in $(seq 1 30); do
-                    docker exec kindash-e2e-postgres-${BUILD_NUMBER} pg_isready -U testuser -d kindash_e2e_test && break
-                    echo "Waiting for postgres... $i/30"
+            sh """
+                for i in \$(seq 1 30); do
+                    docker compose -f ${composeFile} exec -T postgres pg_isready -U testuser -d kindash_e2e_test && break
+                    echo "Waiting for postgres... \$i/30"
                     sleep 2
                 done
-            '''
+            """
 
-            // Wait for app using curl container on the E2E network
+            // Wait for app using curl inside the app container
             echo "Waiting for app to be healthy..."
-            sh '''
+            sh """
                 APP_HEALTHY=false
-                for i in $(seq 1 60); do
-                    # Check health from INSIDE the Docker network using curl container
-                    if docker run --rm --network kindash-e2e-network-${BUILD_NUMBER} curlimages/curl:latest \
-                        curl -f -s "http://kindash-e2e-app-${BUILD_NUMBER}:3010/api/health" > /dev/null 2>&1; then
-                        echo "App is healthy on E2E network!"
+                for i in \$(seq 1 60); do
+                    # Check health from inside the app container
+                    if docker compose -f ${composeFile} exec -T app curl -f -s "http://localhost:3010/api/health" > /dev/null 2>&1; then
+                        echo "App is healthy!"
                         APP_HEALTHY=true
                         break
                     fi
-                    echo "Waiting for app... $i/60"
+                    echo "Waiting for app... \$i/60"
                     sleep 2
                 done
 
-                if [ "$APP_HEALTHY" = "false" ]; then
+                if [ "\$APP_HEALTHY" = "false" ]; then
                     echo "App failed to start:"
-                    docker logs kindash-e2e-app-${BUILD_NUMBER} --tail 100
+                    docker compose -f ${composeFile} logs --tail=100 app
                     exit 1
                 fi
-            '''
+            """
 
             // Install Playwright browsers if not cached
             playwrightSetup(browsers: browsers)
 
             // Run Playwright tests INSIDE a Docker container on the same network
             echo "Running Playwright tests inside Docker container..."
-            sh '''
-                CONTAINER_NAME="playwright-e2e-runner-$$"
+            sh """
+                CONTAINER_NAME="playwright-e2e-runner-\$\$"
 
-                echo "Creating Playwright container: $CONTAINER_NAME"
-                echo "Network: kindash-e2e-network-${BUILD_NUMBER}"
-                echo "Base URL: http://kindash-e2e-app-${BUILD_NUMBER}:3010"
+                # Get the auto-generated network name from Docker Compose
+                NETWORK_NAME=\$(docker compose -f ${composeFile} network ls -q | head -1)
+                if [ -z "\$NETWORK_NAME" ]; then
+                    # Fallback: construct network name from compose project
+                    PROJECT_NAME=\$(docker compose -f ${composeFile} config --format json | jq -r '.name // "docker"')
+                    NETWORK_NAME="\${PROJECT_NAME}_kindash-e2e"
+                fi
+
+                echo "Creating Playwright container: \$CONTAINER_NAME"
+                echo "Network: \$NETWORK_NAME"
+                echo "Base URL: http://app:3010"
 
                 # Create Playwright container on the E2E network
-                docker run -d \
-                    --name "$CONTAINER_NAME" \
-                    --network kindash-e2e-network-${BUILD_NUMBER} \
-                    -w /app \
-                    -e CI=true \
-                    -e E2E_DOCKER=true \
-                    -e PLAYWRIGHT_BASE_URL=http://kindash-e2e-app-${BUILD_NUMBER}:3010 \
-                    -e USE_EXISTING_SERVER=true \
-                    -e E2E_BASE_URL=http://kindash-e2e-app-${BUILD_NUMBER}:3010 \
-                    -e BASE_URL=http://kindash-e2e-app-${BUILD_NUMBER}:3010 \
-                    -e PORT=3010 \
-                    mcr.microsoft.com/playwright:v1.57.0-noble \
+                docker run -d \\
+                    --name "\$CONTAINER_NAME" \\
+                    --network "\$NETWORK_NAME" \\
+                    -w /app \\
+                    -e CI=true \\
+                    -e E2E_DOCKER=true \\
+                    -e PLAYWRIGHT_BASE_URL=http://app:3010 \\
+                    -e USE_EXISTING_SERVER=true \\
+                    -e E2E_BASE_URL=http://app:3010 \\
+                    -e BASE_URL=http://app:3010 \\
+                    -e PORT=3010 \\
+                    mcr.microsoft.com/playwright:v1.57.0-noble \\
                     sleep infinity
 
                 # Copy project files using tar to handle any symlinks
