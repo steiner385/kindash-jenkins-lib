@@ -45,22 +45,35 @@ def call(Map config = [:]) {
         cleanLockfiles: true
     )
 
-    // Remove any existing E2E containers
+    // Aggressive cleanup to avoid 'ContainerConfig' errors
     sh '''
+        echo "Cleaning up E2E containers and volumes..."
+
+        # Force remove containers (ignore errors if they don't exist)
         docker stop kindash-e2e-app kindash-e2e-postgres 2>/dev/null || true
         docker rm -f kindash-e2e-app kindash-e2e-postgres 2>/dev/null || true
         docker ps -a -q -f "name=playwright-e2e-runner" | xargs -r docker rm -f 2>/dev/null || true
+
+        # Remove any E2E volumes explicitly
+        docker volume ls -q -f "name=docker_" | grep -E "(postgres|e2e)" | xargs -r docker volume rm -f 2>/dev/null || true
+
+        # Remove network if it exists
+        docker network rm kindash-e2e-network 2>/dev/null || true
+
+        # Give Docker daemon time to process removals
+        sleep 2
     '''
 
-    // Remove volumes and networks for clean start
+    // Remove volumes and networks for clean start (should be a no-op after explicit cleanup)
     dockerCompose.safe('down -v --remove-orphans', composeFile)
 
     // Kill any processes on E2E ports
     sh '''
+        echo "Cleaning up ports..."
         for port in 5433 3010; do
             fuser -k $port/tcp 2>/dev/null || true
         done
-        sleep 5
+        sleep 2
     '''
 
     try {
@@ -73,13 +86,24 @@ def call(Map config = [:]) {
                 description: 'E2E tests running'
             )
 
+            // Verify cleanup was successful
+            sh '''
+                echo "Verifying cleanup..."
+                if docker ps -a | grep -E "kindash-e2e-(app|postgres)"; then
+                    echo "ERROR: Found existing E2E containers after cleanup!"
+                    docker ps -a | grep "kindash-e2e"
+                    exit 1
+                fi
+                echo "Cleanup verification passed"
+            '''
+
             // Build Docker images
             echo "Building E2E Docker images..."
             dockerCompose('build --parallel', composeFile)
 
-            // Start E2E infrastructure (app + postgres)
+            // Start E2E infrastructure (app + postgres) with force-recreate
             echo "Starting E2E infrastructure..."
-            dockerCompose('up -d', composeFile)
+            dockerCompose('up -d --force-recreate', composeFile)
 
             // Wait for postgres to be ready
             echo "Waiting for PostgreSQL..."
