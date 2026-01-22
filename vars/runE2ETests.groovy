@@ -162,20 +162,20 @@ def call(Map config = [:]) {
 
                 # Copy project files using tar to handle any symlinks
                 echo "Copying project files to container..."
-                tar -chf - \
-                    --exclude=node_modules \
-                    --exclude=.git \
-                    --exclude=dist-* \
-                    --exclude=coverage \
-                    --exclude=playwright-report \
-                    --exclude=test-results \
-                    --exclude=allure-results \
-                    . | docker exec -i "$CONTAINER_NAME" tar -xf - -C /app/
+                tar -chf - \\
+                    --exclude=node_modules \\
+                    --exclude=.git \\
+                    --exclude=dist-* \\
+                    --exclude=coverage \\
+                    --exclude=playwright-report \\
+                    --exclude=test-results \\
+                    --exclude=allure-results \\
+                    . | docker exec -i "\$CONTAINER_NAME" tar -xf - -C /app/
 
                 echo "Files copied. Installing dependencies..."
 
                 # Run npm install and Playwright tests inside the container
-                docker exec "$CONTAINER_NAME" bash -c "
+                docker exec "\$CONTAINER_NAME" bash -c "
                     echo 'Installing npm dependencies...'
                     npm config set registry https://registry.npmjs.org
                     npm install --legacy-peer-deps --no-audit --no-fund 2>&1 || {
@@ -189,27 +189,27 @@ def call(Map config = [:]) {
 
                     npx playwright test --reporter=list,junit,allure-playwright
                 " || {
-                    EXIT_CODE=$?
-                    echo "Playwright tests exited with code $EXIT_CODE"
+                    EXIT_CODE=\$?
+                    echo "Playwright tests exited with code \$EXIT_CODE"
 
                     # Copy results even on failure
-                    docker cp "$CONTAINER_NAME":/app/playwright-report ./playwright-report 2>/dev/null || true
-                    docker cp "$CONTAINER_NAME":/app/test-results ./test-results 2>/dev/null || true
-                    docker cp "$CONTAINER_NAME":/app/allure-results ./allure-results 2>/dev/null || true
+                    docker cp "\$CONTAINER_NAME":/app/playwright-report ./playwright-report 2>/dev/null || true
+                    docker cp "\$CONTAINER_NAME":/app/test-results ./test-results 2>/dev/null || true
+                    docker cp "\$CONTAINER_NAME":/app/allure-results ./allure-results 2>/dev/null || true
 
                     # Cleanup container
-                    docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
-                    exit $EXIT_CODE
+                    docker rm -f "\$CONTAINER_NAME" 2>/dev/null || true
+                    exit \$EXIT_CODE
                 }
 
                 # Copy test results back to workspace
                 echo "Copying test results..."
-                docker cp "$CONTAINER_NAME":/app/playwright-report ./playwright-report 2>/dev/null || true
-                docker cp "$CONTAINER_NAME":/app/test-results ./test-results 2>/dev/null || true
-                docker cp "$CONTAINER_NAME":/app/allure-results ./allure-results 2>/dev/null || true
+                docker cp "\$CONTAINER_NAME":/app/playwright-report ./playwright-report 2>/dev/null || true
+                docker cp "\$CONTAINER_NAME":/app/test-results ./test-results 2>/dev/null || true
+                docker cp "\$CONTAINER_NAME":/app/allure-results ./allure-results 2>/dev/null || true
 
                 # Cleanup container
-                docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+                docker rm -f "\$CONTAINER_NAME" 2>/dev/null || true
 
                 echo "Playwright tests completed successfully"
             '''
