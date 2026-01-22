@@ -67,12 +67,44 @@ def call(Map config = [:]) {
         // Remove volumes and networks for clean start
         dockerCompose.safe('down -v --remove-orphans', composeFile)
 
-        // Kill any processes on E2E ports
+        // Kill any processes on E2E ports and wait for them to be released
         sh '''
+            echo "Killing processes on ports 5433 and 3010..."
             for port in 5433 3010; do
                 fuser -k $port/tcp 2>/dev/null || true
             done
-            sleep 2
+
+            echo "Waiting for ports to be released (max 30 seconds)..."
+            for i in $(seq 1 30); do
+                PORT_5433_FREE=true
+                PORT_3010_FREE=true
+
+                # Check if port 5433 is free
+                if lsof -i :5433 -sTCP:LISTEN -t >/dev/null 2>&1 || fuser 5433/tcp >/dev/null 2>&1; then
+                    PORT_5433_FREE=false
+                fi
+
+                # Check if port 3010 is free
+                if lsof -i :3010 -sTCP:LISTEN -t >/dev/null 2>&1 || fuser 3010/tcp >/dev/null 2>&1; then
+                    PORT_3010_FREE=false
+                fi
+
+                if [ "$PORT_5433_FREE" = "true" ] && [ "$PORT_3010_FREE" = "true" ]; then
+                    echo "All ports are free!"
+                    break
+                fi
+
+                echo "Waiting for ports to be released... attempt $i/30"
+                sleep 1
+            done
+
+            # Final check
+            if lsof -i :5433 -sTCP:LISTEN -t >/dev/null 2>&1 || fuser 5433/tcp >/dev/null 2>&1; then
+                echo "WARNING: Port 5433 still in use after 30 seconds"
+            fi
+            if lsof -i :3010 -sTCP:LISTEN -t >/dev/null 2>&1 || fuser 3010/tcp >/dev/null 2>&1; then
+                echo "WARNING: Port 3010 still in use after 30 seconds"
+            fi
         '''
     }
 
@@ -95,9 +127,9 @@ def call(Map config = [:]) {
             dockerCompose('build --parallel', composeFile)
 
             // Start E2E infrastructure (app + postgres)
-            // Use --force-recreate to create fresh containers, bypassing corrupted metadata
+            // No --force-recreate since we already did aggressive cleanup
             echo "Starting E2E infrastructure..."
-            dockerCompose('up -d --force-recreate --remove-orphans', composeFile)
+            dockerCompose('up -d --remove-orphans', composeFile)
 
             // Wait for postgres to be ready
             echo "Waiting for PostgreSQL..."
