@@ -45,21 +45,25 @@ def call(Map config = [:]) {
         cleanLockfiles: true
     )
 
-    // Remove any existing E2E containers
+    // Aggressive cleanup: Remove containers by network to bypass metadata corruption
     sh '''
-        docker stop kindash-e2e-app kindash-e2e-postgres 2>/dev/null || true
-        docker rm -f kindash-e2e-app kindash-e2e-postgres 2>/dev/null || true
+        echo "Force-removing E2E containers (bypassing corrupted metadata)..."
+
+        # Remove containers on our E2E network (works even with corrupted metadata)
+        docker network inspect kindash-e2e-network -f '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null | xargs -r docker rm -f 2>/dev/null || true
+
+        # Also remove by name filter as backup
+        docker ps -a -q -f "name=kindash-e2e-postgres" | xargs -r docker rm -f 2>/dev/null || true
+        docker ps -a -q -f "name=kindash-e2e-app" | xargs -r docker rm -f 2>/dev/null || true
         docker ps -a -q -f "name=playwright-e2e-runner" | xargs -r docker rm -f 2>/dev/null || true
+
+        # Prune stopped containers BEFORE docker-compose operations
+        echo "Pruning stopped containers to clear corrupted metadata..."
+        docker container prune -f 2>/dev/null || true
     '''
 
     // Remove volumes and networks for clean start
     dockerCompose.safe('down -v --remove-orphans', composeFile)
-
-    // Prune any stopped containers with potentially corrupted metadata
-    sh '''
-        echo "Pruning stopped containers to clear corrupted metadata..."
-        docker container prune -f 2>/dev/null || true
-    '''
 
     // Kill any processes on E2E ports
     sh '''
