@@ -49,16 +49,16 @@ def call(Map config = [:]) {
     sh '''
         echo "Cleaning up E2E containers and volumes..."
 
-        # Force remove containers (ignore errors if they don't exist)
-        docker stop kindash-e2e-app kindash-e2e-postgres 2>/dev/null || true
-        docker rm -f kindash-e2e-app kindash-e2e-postgres 2>/dev/null || true
+        # Force remove ALL E2E containers (wildcards match all build numbers)
+        docker ps -a -q -f "name=kindash-e2e-app" | xargs -r docker rm -f 2>/dev/null || true
+        docker ps -a -q -f "name=kindash-e2e-postgres" | xargs -r docker rm -f 2>/dev/null || true
         docker ps -a -q -f "name=playwright-e2e-runner" | xargs -r docker rm -f 2>/dev/null || true
 
         # Remove any E2E volumes explicitly
         docker volume ls -q -f "name=docker_" | grep -E "(postgres|e2e)" | xargs -r docker volume rm -f 2>/dev/null || true
 
-        # Remove network if it exists
-        docker network rm kindash-e2e-network 2>/dev/null || true
+        # Remove ALL E2E networks (wildcards match all build numbers)
+        docker network ls -q -f "name=kindash-e2e-network" | xargs -r docker network rm 2>/dev/null || true
 
         # Export BUILD_NUMBER for unique container names
         export BUILD_NUMBER=${BUILD_NUMBER}
