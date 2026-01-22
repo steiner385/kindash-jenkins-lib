@@ -184,9 +184,10 @@ def call(Map config = [:]) {
             '''
 
             // Start E2E infrastructure (app + postgres)
-            // No --force-recreate since we already did aggressive cleanup
+            // Use --force-recreate to clear Docker's internal port allocation state
+            // (fuser/lsof only see OS-level bindings, not Docker's internal state)
             echo "Starting E2E infrastructure..."
-            dockerCompose('up -d --remove-orphans', composeFile)
+            dockerCompose('up -d --force-recreate --remove-orphans', composeFile)
 
             // Wait for postgres to be ready
             echo "Waiting for PostgreSQL..."
