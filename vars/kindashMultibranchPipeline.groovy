@@ -21,21 +21,6 @@ def call() {
     pipeline {
         agent any
 
-        // ✅ Only run on pull requests and protected branches
-        // This prevents duplicate builds (branch push + PR creation)
-        when {
-            anyOf {
-                // Build all pull requests
-                changeRequest()
-                // Build main branch after merges
-                branch 'main'
-                // Build staging branch
-                branch 'staging'
-                // Build deployment branches
-                branch pattern: 'deploy/.*', comparator: 'REGEXP'
-            }
-        }
-
         environment {
             GITHUB_OWNER = 'steiner385'
             GITHUB_REPO = 'KinDash'
@@ -57,6 +42,17 @@ def call() {
             stage('Initialize') {
                 steps {
                     script {
+                        // ✅ Only build PRs and protected branches (prevents duplicate builds)
+                        def isPR = env.CHANGE_ID != null
+                        def isProtectedBranch = env.BRANCH_NAME in ['main', 'staging'] || env.BRANCH_NAME?.startsWith('deploy/')
+
+                        if (!isPR && !isProtectedBranch) {
+                            echo "Skipping build for branch: ${env.BRANCH_NAME}"
+                            echo "This branch will be built when a PR is created."
+                            currentBuild.result = 'NOT_BUILT'
+                            return
+                        }
+
                         // Determine build type for logging and status reporting
                         def buildType = env.CHANGE_ID ? "PR #${env.CHANGE_ID}" : "Branch: ${env.BRANCH_NAME}"
                         echo "=== Multi-Branch Build ==="
@@ -88,18 +84,27 @@ def call() {
             }
 
             stage('Install Dependencies') {
+                when {
+                    expression { currentBuild.result != 'NOT_BUILT' }
+                }
                 steps {
                     installDependencies()
                 }
             }
 
             stage('Build Packages') {
+                when {
+                    expression { currentBuild.result != 'NOT_BUILT' }
+                }
                 steps {
                     sh 'npm run build:packages || true'
                 }
             }
 
             stage('Lint') {
+                when {
+                    expression { currentBuild.result != 'NOT_BUILT' }
+                }
                 steps {
                     script {
                         // Make lint non-blocking - report warnings but don't fail the build
@@ -114,6 +119,9 @@ def call() {
             }
 
             stage('Unit Tests') {
+                when {
+                    expression { currentBuild.result != 'NOT_BUILT' }
+                }
                 steps {
                     withAwsCredentials {
                         runUnitTests(
@@ -125,6 +133,9 @@ def call() {
             }
 
             stage('Build') {
+                when {
+                    expression { currentBuild.result != 'NOT_BUILT' }
+                }
                 steps {
                     buildProject(skipCheckout: true)
                 }
