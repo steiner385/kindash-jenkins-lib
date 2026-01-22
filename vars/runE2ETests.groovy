@@ -67,6 +67,13 @@ def call(Map config = [:]) {
     // Remove volumes and networks for clean start (should be a no-op after explicit cleanup)
     dockerCompose.safe('down -v --remove-orphans', composeFile)
 
+    // Aggressive cleanup: Remove all dangling Docker resources
+    sh '''
+        echo "Running system prune to remove dangling resources..."
+        docker system prune --force --volumes 2>/dev/null || true
+        sleep 2
+    '''
+
     // Kill any processes on E2E ports
     sh '''
         echo "Cleaning up ports..."
