@@ -60,6 +60,9 @@ def call(Map config = [:]) {
         # Remove network if it exists
         docker network rm kindash-e2e-network 2>/dev/null || true
 
+        # Export BUILD_NUMBER for unique container names
+        export BUILD_NUMBER=${BUILD_NUMBER}
+
         # Give Docker daemon time to process removals
         sleep 2
     '''
@@ -86,6 +89,9 @@ def call(Map config = [:]) {
     try {
         // Define the test execution closure
         def runTests = {
+            // Export BUILD_NUMBER for unique container names to avoid Docker metadata conflicts
+            env.BUILD_NUMBER = env.BUILD_NUMBER ?: 'local'
+
             // Report pending status
             githubStatusReporter(
                 status: 'pending',
@@ -96,7 +102,7 @@ def call(Map config = [:]) {
             // Verify cleanup was successful
             sh '''
                 echo "Verifying cleanup..."
-                if docker ps -a | grep -E "kindash-e2e-(app|postgres)"; then
+                if docker ps -a | grep -E "kindash-e2e-(app|postgres)-${BUILD_NUMBER}"; then
                     echo "ERROR: Found existing E2E containers after cleanup!"
                     docker ps -a | grep "kindash-e2e"
                     exit 1
@@ -116,7 +122,7 @@ def call(Map config = [:]) {
             echo "Waiting for PostgreSQL..."
             sh '''
                 for i in $(seq 1 30); do
-                    docker exec kindash-e2e-postgres pg_isready -U testuser -d kindash_e2e_test && break
+                    docker exec kindash-e2e-postgres-${BUILD_NUMBER} pg_isready -U testuser -d kindash_e2e_test && break
                     echo "Waiting for postgres... $i/30"
                     sleep 2
                 done
@@ -128,8 +134,8 @@ def call(Map config = [:]) {
                 APP_HEALTHY=false
                 for i in $(seq 1 60); do
                     # Check health from INSIDE the Docker network using curl container
-                    if docker run --rm --network kindash-e2e-network curlimages/curl:latest \
-                        curl -f -s "http://kindash-e2e-app:3010/api/health" > /dev/null 2>&1; then
+                    if docker run --rm --network kindash-e2e-network-${BUILD_NUMBER} curlimages/curl:latest \
+                        curl -f -s "http://kindash-e2e-app-${BUILD_NUMBER}:3010/api/health" > /dev/null 2>&1; then
                         echo "App is healthy on E2E network!"
                         APP_HEALTHY=true
                         break
@@ -140,7 +146,7 @@ def call(Map config = [:]) {
 
                 if [ "$APP_HEALTHY" = "false" ]; then
                     echo "App failed to start:"
-                    docker logs kindash-e2e-app --tail 100
+                    docker logs kindash-e2e-app-${BUILD_NUMBER} --tail 100
                     exit 1
                 fi
             '''
@@ -154,20 +160,20 @@ def call(Map config = [:]) {
                 CONTAINER_NAME="playwright-e2e-runner-$$"
 
                 echo "Creating Playwright container: $CONTAINER_NAME"
-                echo "Network: kindash-e2e-network"
-                echo "Base URL: http://kindash-e2e-app:3010"
+                echo "Network: kindash-e2e-network-${BUILD_NUMBER}"
+                echo "Base URL: http://kindash-e2e-app-${BUILD_NUMBER}:3010"
 
                 # Create Playwright container on the E2E network
                 docker run -d \
                     --name "$CONTAINER_NAME" \
-                    --network kindash-e2e-network \
+                    --network kindash-e2e-network-${BUILD_NUMBER} \
                     -w /app \
                     -e CI=true \
                     -e E2E_DOCKER=true \
-                    -e PLAYWRIGHT_BASE_URL=http://kindash-e2e-app:3010 \
+                    -e PLAYWRIGHT_BASE_URL=http://kindash-e2e-app-${BUILD_NUMBER}:3010 \
                     -e USE_EXISTING_SERVER=true \
-                    -e E2E_BASE_URL=http://kindash-e2e-app:3010 \
-                    -e BASE_URL=http://kindash-e2e-app:3010 \
+                    -e E2E_BASE_URL=http://kindash-e2e-app-${BUILD_NUMBER}:3010 \
+                    -e BASE_URL=http://kindash-e2e-app-${BUILD_NUMBER}:3010 \
                     -e PORT=3010 \
                     mcr.microsoft.com/playwright:v1.57.0-noble \
                     sleep infinity
