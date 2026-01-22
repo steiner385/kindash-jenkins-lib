@@ -55,6 +55,12 @@ def call(Map config = [:]) {
     // Remove volumes and networks for clean start
     dockerCompose.safe('down -v --remove-orphans', composeFile)
 
+    // Prune any stopped containers with potentially corrupted metadata
+    sh '''
+        echo "Pruning stopped containers to clear corrupted metadata..."
+        docker container prune -f 2>/dev/null || true
+    '''
+
     // Kill any processes on E2E ports
     sh '''
         for port in 5433 3010; do
