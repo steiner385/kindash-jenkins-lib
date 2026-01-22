@@ -47,7 +47,7 @@ def call(Map config = [:]) {
             cleanLockfiles: true
         )
 
-        // Aggressive cleanup: Remove containers by network to bypass metadata corruption
+        // Aggressive cleanup: Remove containers, networks, and stale docker-proxy processes
         sh '''
             echo "Force-removing E2E containers (bypassing corrupted metadata)..."
 
@@ -59,9 +59,25 @@ def call(Map config = [:]) {
             docker ps -a -q -f "name=kindash-e2e-app" | xargs -r docker rm -f 2>/dev/null || true
             docker ps -a -q -f "name=playwright-e2e-runner" | xargs -r docker rm -f 2>/dev/null || true
 
-            # Prune stopped containers BEFORE docker-compose operations
-            echo "Pruning stopped containers to clear corrupted metadata..."
+            # Prune stopped containers
+            echo "Pruning stopped containers..."
             docker container prune -f 2>/dev/null || true
+
+            # CRITICAL: Remove the E2E network entirely to clear stale endpoints
+            # This ensures no stale port bindings from previous containers
+            echo "Removing E2E network to clear stale endpoints..."
+            docker network rm kindash-e2e-network 2>/dev/null || true
+            docker network rm docker_kindash-e2e-network 2>/dev/null || true
+
+            # Kill any stale docker-proxy processes for our ports
+            # docker-proxy handles port forwarding and can leave stale bindings
+            echo "Killing any stale docker-proxy processes..."
+            pkill -f "docker-proxy.*5433" 2>/dev/null || true
+            pkill -f "docker-proxy.*3010" 2>/dev/null || true
+
+            # Prune unused networks (cleans up disconnected network endpoints)
+            echo "Pruning unused Docker networks..."
+            docker network prune -f 2>/dev/null || true
         '''
 
         // Remove volumes and networks for clean start
