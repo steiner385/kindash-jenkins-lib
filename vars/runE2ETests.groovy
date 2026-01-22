@@ -193,7 +193,7 @@ def call(Map config = [:]) {
                 docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 
                 echo "Playwright tests completed successfully"
-            }
+            '''
         }
 
         // Run tests with or without lock
