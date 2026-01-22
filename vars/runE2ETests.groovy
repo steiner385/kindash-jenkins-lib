@@ -37,45 +37,52 @@ def call(Map config = [:]) {
     // Install dependencies if needed
     installDependencies()
 
-    // Pre-cleanup: Ensure clean environment
-    echo "Cleaning up previous test artifacts and containers..."
-    dockerCleanup(
-        composeFile: composeFile,
-        ports: ports,
-        cleanLockfiles: true
-    )
+    // Define cleanup function to run inside lock
+    def performCleanup = {
+        // Pre-cleanup: Ensure clean environment
+        echo "Cleaning up previous test artifacts and containers..."
+        dockerCleanup(
+            composeFile: composeFile,
+            ports: ports,
+            cleanLockfiles: true
+        )
 
-    // Aggressive cleanup: Remove containers by network to bypass metadata corruption
-    sh '''
-        echo "Force-removing E2E containers (bypassing corrupted metadata)..."
+        // Aggressive cleanup: Remove containers by network to bypass metadata corruption
+        sh '''
+            echo "Force-removing E2E containers (bypassing corrupted metadata)..."
 
-        # Remove containers on our E2E network (works even with corrupted metadata)
-        docker network inspect kindash-e2e-network -f '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null | xargs -r docker rm -f 2>/dev/null || true
+            # Remove containers on our E2E network (works even with corrupted metadata)
+            docker network inspect kindash-e2e-network -f '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null | xargs -r docker rm -f 2>/dev/null || true
 
-        # Also remove by name filter as backup
-        docker ps -a -q -f "name=kindash-e2e-postgres" | xargs -r docker rm -f 2>/dev/null || true
-        docker ps -a -q -f "name=kindash-e2e-app" | xargs -r docker rm -f 2>/dev/null || true
-        docker ps -a -q -f "name=playwright-e2e-runner" | xargs -r docker rm -f 2>/dev/null || true
+            # Also remove by name filter as backup
+            docker ps -a -q -f "name=kindash-e2e-postgres" | xargs -r docker rm -f 2>/dev/null || true
+            docker ps -a -q -f "name=kindash-e2e-app" | xargs -r docker rm -f 2>/dev/null || true
+            docker ps -a -q -f "name=playwright-e2e-runner" | xargs -r docker rm -f 2>/dev/null || true
 
-        # Prune stopped containers BEFORE docker-compose operations
-        echo "Pruning stopped containers to clear corrupted metadata..."
-        docker container prune -f 2>/dev/null || true
-    '''
+            # Prune stopped containers BEFORE docker-compose operations
+            echo "Pruning stopped containers to clear corrupted metadata..."
+            docker container prune -f 2>/dev/null || true
+        '''
 
-    // Remove volumes and networks for clean start
-    dockerCompose.safe('down -v --remove-orphans', composeFile)
+        // Remove volumes and networks for clean start
+        dockerCompose.safe('down -v --remove-orphans', composeFile)
 
-    // Kill any processes on E2E ports
-    sh '''
-        for port in 5433 3010; do
-            fuser -k $port/tcp 2>/dev/null || true
-        done
-        sleep 5
-    '''
+        // Kill any processes on E2E ports
+        sh '''
+            for port in 5433 3010; do
+                fuser -k $port/tcp 2>/dev/null || true
+            done
+            sleep 2
+        '''
+    }
 
     try {
         // Define the test execution closure
         def runTests = {
+            // CRITICAL: Run cleanup INSIDE the lock, after acquiring exclusive access
+            // This prevents port conflicts with other builds that may still be running
+            performCleanup()
+
             // Report pending status
             githubStatusReporter(
                 status: 'pending',
