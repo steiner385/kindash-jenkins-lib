@@ -101,9 +101,9 @@ def call(Map config = [:]) {
             echo "Building E2E Docker images..."
             dockerCompose('build --parallel', composeFile)
 
-            // Start E2E infrastructure (app + postgres) with force-recreate
+            // Start E2E infrastructure (app + postgres)
             echo "Starting E2E infrastructure..."
-            dockerCompose('up -d --force-recreate', composeFile)
+            dockerCompose('up -d', composeFile)
 
             // Wait for postgres to be ready
             echo "Waiting for PostgreSQL..."
