@@ -35,21 +35,27 @@ def call(Map config = [:]) {
     // Jenkins creates a merge commit for testing, but GitHub doesn't know about it
     def sha = env.GIT_COMMIT
     if (env.CHANGE_ID) {
-        // This is a PR - get the actual PR head SHA using git
-        // For merge commits, HEAD^2 is the PR head (second parent)
+        // This is a PR - get the actual PR head SHA from GitHub API
         try {
-            def prHeadSha = sh(
-                script: "git rev-parse HEAD^2 2>/dev/null || echo ''",
-                returnStdout: true
-            ).trim()
-            if (prHeadSha) {
-                sha = prHeadSha
-                echo "Using PR head SHA ${sha.take(7)} instead of merge commit ${env.GIT_COMMIT.take(7)}"
-            } else {
-                echo "WARNING: Could not get PR head SHA from merge commit, using GIT_COMMIT"
+            withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
+                def prHeadSha = sh(
+                    script: """
+                        curl -s -H "Authorization: token \${GITHUB_TOKEN}" \
+                             -H "Accept: application/vnd.github.v3+json" \
+                             "https://api.github.com/repos/${owner}/${repo}/pulls/${env.CHANGE_ID}" \
+                        | grep -o '"sha":\\s*"[^"]*"' | head -1 | cut -d'"' -f4
+                    """,
+                    returnStdout: true
+                ).trim()
+                if (prHeadSha && prHeadSha.length() == 40) {
+                    sha = prHeadSha
+                    echo "Using PR head SHA ${sha.take(7)} from GitHub API instead of merge commit ${env.GIT_COMMIT.take(7)}"
+                } else {
+                    echo "WARNING: Could not get PR head SHA from GitHub API, using GIT_COMMIT"
+                }
             }
         } catch (Exception e) {
-            echo "WARNING: Could not fetch PR head SHA, using GIT_COMMIT: ${e.message}"
+            echo "WARNING: Could not fetch PR head SHA from GitHub API, using GIT_COMMIT: ${e.message}"
         }
     }
 
