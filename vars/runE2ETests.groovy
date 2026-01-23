@@ -381,6 +381,7 @@ def call(Map config = [:]) {
         // Note: allure-results are left in workspace to be picked up by
         // global post block, which publishes the consolidated report
         publishReports(
+            junit: true,       // Publish JUnit results for Jenkins native trend chart
             playwright: true,
             allure: false
         )
