@@ -30,7 +30,25 @@ def call(Map config = [:]) {
     // Get repository info from environment
     def owner = env.GITHUB_OWNER ?: 'steiner385'
     def repo = env.GITHUB_REPO ?: env.JOB_NAME?.split('/')[0]
+
+    // For PRs, use the PR head SHA instead of the merge commit SHA
+    // Jenkins creates a merge commit for testing, but GitHub doesn't know about it
     def sha = env.GIT_COMMIT
+    if (env.CHANGE_ID) {
+        // This is a PR - get the actual PR head SHA
+        try {
+            def prInfo = sh(
+                script: "gh pr view ${env.CHANGE_ID} --json headRefOid --jq '.headRefOid'",
+                returnStdout: true
+            ).trim()
+            if (prInfo) {
+                sha = prInfo
+                echo "Using PR head SHA ${sha.take(7)} instead of merge commit"
+            }
+        } catch (Exception e) {
+            echo "WARNING: Could not fetch PR head SHA, using GIT_COMMIT: ${e.message}"
+        }
+    }
 
     if (!sha) {
         echo "WARNING: GIT_COMMIT not set, skipping GitHub status update"
