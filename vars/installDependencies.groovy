@@ -53,6 +53,12 @@ def call(Map config = [:]) {
             fi
         """
     }
+
+    // Generate Prisma client (required for server tests)
+    sh """
+        echo "Generating Prisma client..."
+        npx prisma generate
+    """
 }
 
 /**
