@@ -219,27 +219,6 @@ def call(Map config = [:]) {
                 done
             '''
 
-            // Run database migrations using db push for E2E tests
-            // This syncs the schema directly without relying on migration history
-            echo "Running database migrations..."
-            sh '''
-                docker exec kindash-e2e-app npx prisma db push --accept-data-loss --skip-generate || {
-                    echo "Migrations failed - showing app logs:"
-                    docker logs kindash-e2e-app --tail 100
-                    exit 1
-                }
-            '''
-
-            // Seed the database with test data
-            echo "Seeding database with test data..."
-            sh '''
-                docker exec kindash-e2e-app npx tsx prisma/seed.ts || {
-                    echo "Database seeding failed - showing app logs:"
-                    docker logs kindash-e2e-app --tail 100
-                    exit 1
-                }
-            '''
-
             // Wait for app using curl container on the E2E network
             echo "Waiting for app to be healthy..."
             sh '''
