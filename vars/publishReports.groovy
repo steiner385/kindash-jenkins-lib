@@ -50,10 +50,10 @@ def call(Map config = [:]) {
     // Coverage HTML report
     if (config.coverage) {
         def coverageDir = config.coverageDir ?: 'coverage'
-        archiveArtifacts artifacts: "${coverageDir}/**", allowEmptyArchive: true
 
-        // Only publish HTML report if coverage directory exists
+        // Only archive and publish if coverage directory exists
         if (fileExists(coverageDir)) {
+            archiveArtifacts artifacts: "${coverageDir}/**", allowEmptyArchive: true
             // Try to publish HTML report if plugin is available
             try {
                 publishHTML(target: [
