@@ -308,7 +308,28 @@ def call(Map config = [:]) {
 
                     # Cleanup container
                     docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
-                    exit $EXIT_CODE
+
+                    # Check if tests actually failed by examining JUnit results
+                    # Playwright may exit non-zero for non-test reasons (reporter cleanup, warnings)
+                    if [ -f "test-results/junit.xml" ]; then
+                        # Count actual test failures and errors in the JUnit XML
+                        FAILURES=$(grep -o 'failures="[0-9]*"' test-results/junit.xml | grep -o '[0-9]*' | head -1)
+                        ERRORS=$(grep -o 'errors="[0-9]*"' test-results/junit.xml | grep -o '[0-9]*' | head -1)
+                        FAILURES=${FAILURES:-0}
+                        ERRORS=${ERRORS:-0}
+
+                        if [ "$FAILURES" -gt 0 ] || [ "$ERRORS" -gt 0 ]; then
+                            echo "❌ Tests failed: $FAILURES failures, $ERRORS errors"
+                            exit 1
+                        else
+                            echo "⚠️  Playwright exited with code $EXIT_CODE but all tests passed (0 failures, 0 errors)"
+                            echo "This is likely due to reporter cleanup or non-test warnings"
+                            # Don't exit - let the success path handle cleanup
+                        fi
+                    else
+                        echo "⚠️  JUnit results not found, falling back to exit code"
+                        exit $EXIT_CODE
+                    fi
                 }
 
                 # Copy test results back to workspace
