@@ -46,18 +46,23 @@ def call(Map config = [:]) {
         def coverageDir = config.coverageDir ?: 'coverage'
         archiveArtifacts artifacts: "${coverageDir}/**", allowEmptyArchive: true
 
-        // Try to publish HTML report if plugin is available
-        try {
-            publishHTML(target: [
-                allowMissing: true,
-                alwaysLinkToLastBuild: true,
-                keepAll: true,
-                reportDir: coverageDir,
-                reportFiles: 'index.html',
-                reportName: config.coverageReportName ?: 'Coverage Report'
-            ])
-        } catch (NoSuchMethodError e) {
-            echo "WARNING: HTML Publisher plugin not installed - skipping Coverage HTML report"
+        // Only publish HTML report if coverage directory exists
+        if (fileExists(coverageDir)) {
+            // Try to publish HTML report if plugin is available
+            try {
+                publishHTML(target: [
+                    allowMissing: true,
+                    alwaysLinkToLastBuild: true,
+                    keepAll: true,
+                    reportDir: coverageDir,
+                    reportFiles: 'index.html',
+                    reportName: config.coverageReportName ?: 'Coverage Report'
+                ])
+            } catch (NoSuchMethodError e) {
+                echo "WARNING: HTML Publisher plugin not installed - skipping Coverage HTML report"
+            }
+        } else {
+            echo "INFO: Coverage directory '${coverageDir}' does not exist - skipping HTML report publishing"
         }
     }
 
