@@ -129,8 +129,8 @@ def call(Map config = [:]) {
 
     } finally {
         // Always publish reports (even if tests fail)
-        // Note: Allure results are archived here, but Allure report is published
-        // once in the global post block to avoid duplicate trend charts
+        // Note: allure-results are left in workspace to be picked up by
+        // global post block, which publishes the consolidated report
         publishReports(
             junit: true,
             coverage: true,
@@ -138,10 +138,8 @@ def call(Map config = [:]) {
             allure: false  // Don't publish Allure here - will be published in global post
         )
 
-        // Archive allure-results so they're available for final report
-        if (enableAllure && fileExists('allure-results')) {
-            archiveArtifacts artifacts: 'allure-results/**', allowEmptyArchive: true
-        }
+        // DON'T archive allure-results here - let them accumulate in workspace
+        // for the global post block to publish as a single consolidated report
     }
 }
 

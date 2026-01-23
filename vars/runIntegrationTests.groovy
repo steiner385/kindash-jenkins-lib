@@ -78,14 +78,12 @@ def call(Map config = [:]) {
 
     } finally {
         // Always publish reports and cleanup
-        // Note: Allure results are archived here, but Allure report is published
-        // once in the global post block to avoid duplicate trend charts
+        // Note: allure-results are left in workspace to be picked up by
+        // global post block, which publishes the consolidated report
         publishReports(junit: true, allure: false)
 
-        // Archive allure-results so they're available for final report
-        if (fileExists('allure-results')) {
-            archiveArtifacts artifacts: 'allure-results/**', allowEmptyArchive: true
-        }
+        // DON'T archive allure-results here - let them accumulate in workspace
+        // for the global post block to publish as a single consolidated report
 
         dockerCleanup(
             composeFile: composeFile,

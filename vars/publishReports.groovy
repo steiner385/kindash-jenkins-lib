@@ -72,9 +72,12 @@ def call(Map config = [:]) {
 
         script {
             if (fileExists('allure-results')) {
+                echo "Publishing consolidated Allure report from workspace results"
                 allure includeProperties: false,
                        jdk: '',
                        results: [[path: 'allure-results']]
+            } else {
+                echo "INFO: No allure-results directory found - skipping Allure report publishing"
             }
         }
     }
