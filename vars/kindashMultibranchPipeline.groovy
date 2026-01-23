@@ -173,16 +173,10 @@ def call() {
                 }
                 post {
                     always {
-                        // Archive E2E test results
-                        // Note: Allure report is published once in the global post block
-                        // to avoid duplicate trend charts
-                        publishReports(
-                            playwright: true,
-                            allure: false
-                        )
-
-                        // Archive allure-results so they're available for final report
-                        archiveArtifacts artifacts: 'allure-results/**', allowEmptyArchive: true
+                        // Note: runE2ETests handles all test artifact archiving
+                        // including allure-results. Allure report is published once
+                        // in the global post block to avoid duplicate trend charts.
+                        echo "E2E test artifacts archived by runE2ETests"
                     }
                 }
             }
