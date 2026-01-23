@@ -23,21 +23,27 @@ def call(Map config = [:]) {
 
     // Playwright HTML report
     if (config.playwright) {
-        archiveArtifacts artifacts: 'playwright-report/**', allowEmptyArchive: true
+        def playwrightDir = config.playwrightDir ?: 'playwright-report'
+        archiveArtifacts artifacts: "${playwrightDir}/**", allowEmptyArchive: true
         archiveArtifacts artifacts: 'test-results/**', allowEmptyArchive: true
 
-        // Try to publish HTML report if plugin is available
-        try {
-            publishHTML(target: [
-                allowMissing: true,
-                alwaysLinkToLastBuild: true,
-                keepAll: true,
-                reportDir: config.playwrightDir ?: 'playwright-report',
-                reportFiles: 'index.html',
-                reportName: config.playwrightReportName ?: 'Playwright Report'
-            ])
-        } catch (NoSuchMethodError e) {
-            echo "WARNING: HTML Publisher plugin not installed - skipping Playwright HTML report"
+        // Only publish HTML report if playwright-report directory exists
+        if (fileExists(playwrightDir)) {
+            // Try to publish HTML report if plugin is available
+            try {
+                publishHTML(target: [
+                    allowMissing: true,
+                    alwaysLinkToLastBuild: true,
+                    keepAll: true,
+                    reportDir: playwrightDir,
+                    reportFiles: 'index.html',
+                    reportName: config.playwrightReportName ?: 'Playwright Report'
+                ])
+            } catch (NoSuchMethodError e) {
+                echo "WARNING: HTML Publisher plugin not installed - skipping Playwright HTML report"
+            }
+        } else {
+            echo "INFO: Playwright report directory '${playwrightDir}' does not exist - skipping HTML report publishing"
         }
     }
 
