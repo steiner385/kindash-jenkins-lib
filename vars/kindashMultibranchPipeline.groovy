@@ -117,14 +117,13 @@ def call() {
                     expression { currentBuild.result != 'NOT_BUILT' }
                 }
                 steps {
-                    script {
-                        // Make lint non-blocking - report warnings but don't fail the build
-                        def lintResult = sh(script: 'npm run lint', returnStatus: true)
-                        if (lintResult != 0) {
-                            echo "Lint completed with warnings/errors (exit code: ${lintResult})"
-                            // Don't fail the build - just report
-                            unstable(message: "Lint has warnings")
-                        }
+                    // Use runLintChecks for GitHub status reporting
+                    // Wrap in catchError to make lint non-blocking
+                    catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                        runLintChecks(
+                            skipCheckout: true,
+                            skipTypeCheck: true
+                        )
                     }
                 }
             }
@@ -139,6 +138,23 @@ def call() {
                             skipCheckout: true,
                             coverageThreshold: 70
                         )
+                    }
+                }
+            }
+
+            stage('Integration Tests') {
+                when {
+                    expression { currentBuild.result != 'NOT_BUILT' }
+                }
+                steps {
+                    catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                        script {
+                            echo "=== Running Integration Tests ==="
+                            runIntegrationTests(
+                                testCommand: 'npm run test:integration',
+                                statusContext: 'jenkins/integration'
+                            )
+                        }
                     }
                 }
             }
