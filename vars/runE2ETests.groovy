@@ -255,9 +255,12 @@ def call(Map config = [:]) {
                 echo "Base URL: http://kindash-e2e-app:3010"
 
                 # Create Playwright container on the E2E network
+                # CRITICAL: --memory=4g prevents OOM killer (exit code 137) during npm install
                 docker run -d \
                     --name "$CONTAINER_NAME" \
                     --network kindash-e2e-network \
+                    --memory=4g \
+                    --memory-swap=4g \
                     -w /app \
                     -e CI=true \
                     -e E2E_DOCKER=true \
@@ -270,6 +273,7 @@ def call(Map config = [:]) {
                     sleep infinity
 
                 # Copy project files using tar to handle any symlinks
+                # NOTE: Container has 4GB memory limit to prevent OOM during npm install
                 echo "Copying project files to container..."
                 tar -chf - \
                     --exclude=node_modules \
@@ -283,12 +287,13 @@ def call(Map config = [:]) {
 
                 echo "Files copied. Installing dependencies..."
 
-                # Run npm install and Playwright tests inside the container
+                # Run npm ci and Playwright tests inside the container
+                # npm ci provides clean install and verifies lock file integrity
                 docker exec "$CONTAINER_NAME" bash -c "
                     echo 'Installing npm dependencies...'
                     npm config set registry https://registry.npmjs.org
-                    npm install --legacy-peer-deps --no-audit --no-fund 2>&1 || {
-                        echo 'npm install failed'
+                    npm ci --legacy-peer-deps --no-audit --no-fund 2>&1 || {
+                        echo 'npm ci failed'
                         exit 1
                     }
 
