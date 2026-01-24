@@ -296,7 +296,7 @@ def call(Map config = [:]) {
                     echo 'Base URL: \$E2E_BASE_URL'
                     echo '=========================================='
 
-                    npx playwright test --config=playwright.ci-baseline.config.ts --reporter=list,junit,allure-playwright
+                    npx playwright test --config=playwright.ci-baseline.config.ts
                 " || {
                     EXIT_CODE=$?
                     echo "Playwright tests exited with code $EXIT_CODE"
