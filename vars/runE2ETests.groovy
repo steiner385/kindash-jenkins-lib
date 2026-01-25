@@ -52,10 +52,11 @@ def call(Map config = [:]) {
         sh '''
             echo "Force-removing E2E containers (bypassing corrupted metadata)..."
 
-            # Remove containers on our E2E network (works even with corrupted metadata)
-            docker network inspect kindash-e2e-network -f '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null | xargs -r docker rm -f 2>/dev/null || true
+            # Use docker-compose down to clean up project-specific resources
+            # This automatically handles dynamic container/network names based on COMPOSE_PROJECT_NAME
+            docker compose -f docker/docker-compose.e2e.yml down --remove-orphans --volumes 2>/dev/null || true
 
-            # Also remove by name filter as backup
+            # Also remove by name filter as backup for old fixed-name containers (legacy cleanup)
             docker ps -a -q -f "name=kindash-e2e-postgres" | xargs -r docker rm -f 2>/dev/null || true
             docker ps -a -q -f "name=kindash-e2e-app" | xargs -r docker rm -f 2>/dev/null || true
             docker ps -a -q -f "name=playwright-e2e-runner" | xargs -r docker rm -f 2>/dev/null || true
@@ -64,9 +65,9 @@ def call(Map config = [:]) {
             echo "Pruning stopped containers..."
             docker container prune -f 2>/dev/null || true
 
-            # CRITICAL: Remove the E2E network entirely to clear stale endpoints
-            # This ensures no stale port bindings from previous containers
-            echo "Removing E2E network to clear stale endpoints..."
+            # CRITICAL: Remove old fixed-name networks (legacy cleanup)
+            # New builds use project-prefixed networks cleaned up by docker-compose down
+            echo "Removing legacy E2E networks..."
             docker network rm kindash-e2e-network 2>/dev/null || true
             docker network rm docker_kindash-e2e-network 2>/dev/null || true
 
@@ -214,7 +215,7 @@ def call(Map config = [:]) {
             echo "Waiting for PostgreSQL..."
             sh '''
                 for i in $(seq 1 30); do
-                    docker exec kindash-e2e-postgres pg_isready -U testuser -d kindash_e2e_test && break
+                    docker compose -f docker/docker-compose.e2e.yml exec -T postgres pg_isready -U testuser -d kindash_e2e_test && break
                     echo "Waiting for postgres... $i/30"
                     sleep 2
                 done
@@ -226,8 +227,9 @@ def call(Map config = [:]) {
                 APP_HEALTHY=false
                 for i in $(seq 1 60); do
                     # Check health from INSIDE the Docker network using curl container
-                    if docker run --rm --network kindash-e2e-network curlimages/curl:latest \
-                        curl -f -s "http://kindash-e2e-app:3010/api/health" > /dev/null 2>&1; then
+                    # Use Docker service name 'app' which works with any COMPOSE_PROJECT_NAME
+                    if docker run --rm --network ${COMPOSE_PROJECT_NAME}_kindash-e2e-network curlimages/curl:latest \
+                        curl -f -s "http://app:3010/api/health" > /dev/null 2>&1; then
                         echo "App is healthy on E2E network!"
                         APP_HEALTHY=true
                         break
@@ -238,7 +240,7 @@ def call(Map config = [:]) {
 
                 if [ "$APP_HEALTHY" = "false" ]; then
                     echo "App failed to start:"
-                    docker logs kindash-e2e-app --tail 100
+                    docker compose -f docker/docker-compose.e2e.yml logs app --tail 100
                     exit 1
                 fi
             '''
@@ -252,23 +254,24 @@ def call(Map config = [:]) {
                 CONTAINER_NAME="playwright-e2e-runner-$$"
 
                 echo "Creating Playwright container: $CONTAINER_NAME"
-                echo "Network: kindash-e2e-network"
-                echo "Base URL: http://kindash-e2e-app:3010"
+                echo "Network: ${COMPOSE_PROJECT_NAME}_kindash-e2e-network"
+                echo "Base URL: http://app:3010"
 
                 # Create Playwright container on the E2E network
                 # CRITICAL: --memory=4g prevents OOM killer (exit code 137) during npm install
+                # Use Docker service name 'app' which works with any COMPOSE_PROJECT_NAME
                 docker run -d \
                     --name "$CONTAINER_NAME" \
-                    --network kindash-e2e-network \
+                    --network ${COMPOSE_PROJECT_NAME}_kindash-e2e-network \
                     --memory=4g \
                     --memory-swap=4g \
                     -w /app \
                     -e CI=true \
                     -e E2E_DOCKER=true \
-                    -e PLAYWRIGHT_BASE_URL=http://kindash-e2e-app:3010 \
+                    -e PLAYWRIGHT_BASE_URL=http://app:3010 \
                     -e USE_EXISTING_SERVER=true \
-                    -e E2E_BASE_URL=http://kindash-e2e-app:3010 \
-                    -e BASE_URL=http://kindash-e2e-app:3010 \
+                    -e E2E_BASE_URL=http://app:3010 \
+                    -e BASE_URL=http://app:3010 \
                     -e PORT=3010 \
                     mcr.microsoft.com/playwright:v1.57.0-noble \
                     sleep infinity
