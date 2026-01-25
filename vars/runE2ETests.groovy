@@ -355,11 +355,15 @@ def call(Map config = [:]) {
         }
 
         // Run tests with or without lock
-        if (skipLock) {
-            runTests()
-        } else {
-            lock(resource: lockResource, inversePrecedence: true) {
+        // Set COMPOSE_PROJECT_NAME for collision-free parallel builds
+        def composeProjectName = "e2e-build-${env.BUILD_NUMBER}"
+        withEnv(["COMPOSE_PROJECT_NAME=${composeProjectName}"]) {
+            if (skipLock) {
                 runTests()
+            } else {
+                lock(resource: lockResource, inversePrecedence: true) {
+                    runTests()
+                }
             }
         }
 
