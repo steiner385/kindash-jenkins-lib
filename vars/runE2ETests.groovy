@@ -26,7 +26,8 @@ def call(Map config = [:]) {
     def composeFile = config.composeFile ?: 'docker/docker-compose.e2e.yml'
     def ports = config.ports ?: [3010, 5433]  // E2E app and postgres ports
     def browsers = config.browsers ?: ['chromium']
-    def skipLock = config.skipLock ?: false
+    // Skip locking by default - Docker Compose project naming prevents resource conflicts
+    def skipLock = config.skipLock ?: true
     def skipCheckout = config.skipCheckout ?: false
 
     // Ensure source code is present (runners don't share filesystems)

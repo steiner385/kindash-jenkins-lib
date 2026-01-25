@@ -22,7 +22,8 @@ def call(Map config = [:]) {
     def lockResource = config.lockResource ?: 'test-infrastructure'
     def composeFile = config.composeFile ?: 'deployment/docker/docker-compose.test.yml'
     def ports = config.ports ?: pipelineHelpers.getServicePorts()
-    def skipLock = config.skipLock ?: false
+    // Skip locking by default - Docker Compose project naming prevents resource conflicts
+    def skipLock = config.skipLock ?: true
     def skipCheckout = config.skipCheckout ?: false
 
     // Ensure source code is present (runners don't share filesystems)
