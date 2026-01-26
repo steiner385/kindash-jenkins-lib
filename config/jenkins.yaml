@@ -255,9 +255,11 @@ credentials:
               secret: "${AWS_REGION:-us-east-1}"
               description: "AWS Region for Bedrock"
 
-# Job Definitions - using syntax from remote-file-plugin official docs
+# Job Definitions
+# Uses Jenkinsfile from each project's repo (not remote Jenkinsfile)
 jobs:
   # KinDash Multi-branch Pipeline
+  # Uses Jenkinsfile from KinDash repo which loads the shared library
   - script: |
       multibranchPipelineJob('KinDash-multibranch') {
         displayName('KinDash Branches')
@@ -276,29 +278,8 @@ jobs:
           }
         }
         factory {
-          remoteJenkinsFileWorkflowBranchProjectFactory {
-            localMarker('')
-            matchBranches(false)
-            remoteJenkinsFile('Jenkinsfile.multibranch')
-            remoteJenkinsFileSCM {
-              gitSCM {
-                userRemoteConfigs {
-                  userRemoteConfig {
-                    name('origin')
-                    url('https://github.com/steiner385/kindash-jenkins-lib.git')
-                    refspec('main')
-                    credentialsId('github-credentials')
-                  }
-                }
-                branches {
-                  branchSpec {
-                    name('main')
-                  }
-                }
-                browser {}
-                gitTool('')
-              }
-            }
+          workflowBranchProjectFactory {
+            scriptPath('Jenkinsfile')
           }
         }
         orphanedItemStrategy {
@@ -315,6 +296,7 @@ jobs:
       }
 
   # uniteDiscord Multi-branch Pipeline
+  # Uses Jenkinsfile from uniteDiscord repo which loads the shared library
   - script: |
       multibranchPipelineJob('uniteDiscord-multibranch') {
         displayName('uniteDiscord Branches')
@@ -333,29 +315,8 @@ jobs:
           }
         }
         factory {
-          remoteJenkinsFileWorkflowBranchProjectFactory {
-            localMarker('')
-            matchBranches(false)
-            remoteJenkinsFile('Jenkinsfile.multibranch')
-            remoteJenkinsFileSCM {
-              gitSCM {
-                userRemoteConfigs {
-                  userRemoteConfig {
-                    name('origin')
-                    url('https://github.com/steiner385/unitediscord-jenkins-lib.git')
-                    refspec('main')
-                    credentialsId('github-credentials')
-                  }
-                }
-                branches {
-                  branchSpec {
-                    name('main')
-                  }
-                }
-                browser {}
-                gitTool('')
-              }
-            }
+          workflowBranchProjectFactory {
+            scriptPath('Jenkinsfile')
           }
         }
         orphanedItemStrategy {
@@ -424,6 +385,7 @@ jobs:
       }
 
   # Capacinator Multi-branch Pipeline
+  # Uses Jenkinsfile from Capacinator repo which loads the shared library
   - script: |
       multibranchPipelineJob('Capacinator-multibranch') {
         displayName('Capacinator Branches')
@@ -442,29 +404,8 @@ jobs:
           }
         }
         factory {
-          remoteJenkinsFileWorkflowBranchProjectFactory {
-            localMarker('')
-            matchBranches(false)
-            remoteJenkinsFile('Jenkinsfile.multibranch')
-            remoteJenkinsFileSCM {
-              gitSCM {
-                userRemoteConfigs {
-                  userRemoteConfig {
-                    name('origin')
-                    url('https://github.com/steiner385/capacinator-jenkins-lib.git')
-                    refspec('main')
-                    credentialsId('github-credentials')
-                  }
-                }
-                branches {
-                  branchSpec {
-                    name('main')
-                  }
-                }
-                browser {}
-                gitTool('')
-              }
-            }
+          workflowBranchProjectFactory {
+            scriptPath('Jenkinsfile')
           }
         }
         orphanedItemStrategy {
