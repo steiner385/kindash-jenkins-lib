@@ -261,8 +261,8 @@ jobs:
   # KinDash Multi-branch Pipeline
   # Uses Jenkinsfile from KinDash repo which loads the shared library
   - script: |
-      multibranchPipelineJob('KinDash-multibranch') {
-        displayName('KinDash Branches')
+      multibranchPipelineJob('KinDash-ci') {
+        displayName('KinDash CI')
         description('Multi-branch pipeline for all KinDash branches and PRs')
         branchSources {
           github {
