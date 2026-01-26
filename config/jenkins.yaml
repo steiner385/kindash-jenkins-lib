@@ -384,39 +384,3 @@ jobs:
         }
       }
 
-  # Capacinator Multi-branch Pipeline
-  # Uses Jenkinsfile from Capacinator repo which loads the shared library
-  - script: |
-      multibranchPipelineJob('Capacinator-multibranch') {
-        displayName('Capacinator Branches')
-        description('Multi-branch pipeline for all Capacinator branches and PRs')
-        branchSources {
-          github {
-            id('capacinator-github-source')
-            repoOwner('steiner385')
-            repository('Capacinator')
-            scanCredentialsId('github-credentials')
-            buildOriginBranch(true)
-            buildOriginBranchWithPR(false)
-            buildOriginPRMerge(true)
-            buildOriginPRHead(false)
-            buildForkPRMerge(false)
-          }
-        }
-        factory {
-          workflowBranchProjectFactory {
-            scriptPath('Jenkinsfile')
-          }
-        }
-        orphanedItemStrategy {
-          discardOldItems {
-            numToKeep(30)
-            daysToKeep(60)
-          }
-        }
-        triggers {
-          periodicFolderTrigger {
-            interval('5 minutes')
-          }
-        }
-      }
