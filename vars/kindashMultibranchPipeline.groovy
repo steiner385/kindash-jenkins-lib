@@ -11,6 +11,13 @@
  *   BRANCH_NAME   - Current branch name
  *   CHANGE_ID     - PR number (null if not a PR build)
  *
+ * Branch Filtering:
+ *   - Only PRs and protected branches (main, develop, staging, deploy/*) are built
+ *   - Other branch pushes are skipped immediately without allocating an executor
+ *   - To prevent build entries entirely, configure Branch Source in Jenkins UI:
+ *     Configure > Branch Sources > GitHub > Behaviors > Filter by name (with regular expression)
+ *     Include: (main|develop|staging|deploy/.*)
+ *
  * Webhook Setup:
  *   URL: https://jenkins.kindash.com/github-webhook/
  *   Content type: application/json
@@ -18,6 +25,22 @@
  */
 
 def call() {
+    // Pre-flight branch check (runs without allocating an agent)
+    def isPR = env.CHANGE_ID != null
+    def isProtectedBranch = env.BRANCH_NAME in ['main', 'develop', 'staging'] || env.BRANCH_NAME?.startsWith('deploy/')
+
+    if (!isPR && !isProtectedBranch) {
+        echo "⏭️ Skipping build for branch: ${env.BRANCH_NAME}"
+        echo "This branch will be built when a PR is created."
+        echo ""
+        echo "To prevent these build entries entirely, configure Branch Source filtering in Jenkins:"
+        echo "  Configure > Branch Sources > Behaviors > Filter by name (with regular expression)"
+        echo "  Include: (main|develop|staging|deploy/.*)"
+        currentBuild.result = 'NOT_BUILT'
+        currentBuild.description = "Skipped: feature branch (no PR)"
+        return
+    }
+
     pipeline {
         agent any
 
@@ -47,17 +70,6 @@ def call() {
             stage('Initialize') {
                 steps {
                     script {
-                        // ✅ Only build PRs and protected branches (prevents duplicate builds)
-                        def isPR = env.CHANGE_ID != null
-                        def isProtectedBranch = env.BRANCH_NAME in ['main', 'develop', 'staging'] || env.BRANCH_NAME?.startsWith('deploy/')
-
-                        if (!isPR && !isProtectedBranch) {
-                            echo "Skipping build for branch: ${env.BRANCH_NAME}"
-                            echo "This branch will be built when a PR is created."
-                            currentBuild.result = 'NOT_BUILT'
-                            return
-                        }
-
                         // Determine build type for logging and status reporting
                         def buildType = env.CHANGE_ID ? "PR #${env.CHANGE_ID}" : "Branch: ${env.BRANCH_NAME}"
                         echo "=== Multi-Branch Build ==="
@@ -95,27 +107,18 @@ def call() {
             }
 
             stage('Install Dependencies') {
-                when {
-                    expression { currentBuild.result != 'NOT_BUILT' }
-                }
                 steps {
                     installDependencies()
                 }
             }
 
             stage('Build Packages') {
-                when {
-                    expression { currentBuild.result != 'NOT_BUILT' }
-                }
                 steps {
                     sh 'npm run build:packages || true'
                 }
             }
 
             stage('Lint') {
-                when {
-                    expression { currentBuild.result != 'NOT_BUILT' }
-                }
                 steps {
                     // Use runLintChecks for GitHub status reporting
                     // Wrap in catchError to make lint non-blocking
@@ -129,9 +132,6 @@ def call() {
             }
 
             stage('Unit Tests') {
-                when {
-                    expression { currentBuild.result != 'NOT_BUILT' }
-                }
                 steps {
                     withAwsCredentials {
                         runUnitTests(
@@ -143,9 +143,6 @@ def call() {
             }
 
             stage('Integration Tests') {
-                when {
-                    expression { currentBuild.result != 'NOT_BUILT' }
-                }
                 steps {
                     catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                         script {
@@ -198,9 +195,6 @@ def call() {
             }
 
             stage('Build') {
-                when {
-                    expression { currentBuild.result != 'NOT_BUILT' }
-                }
                 steps {
                     buildProject(skipCheckout: true)
                 }
