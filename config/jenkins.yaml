@@ -260,21 +260,44 @@ credentials:
 jobs:
   # KinDash Multi-branch Pipeline
   # Uses Jenkinsfile from KinDash repo which loads the shared library
+  # Branch filtering: Only builds protected branches (main, develop, staging, deploy/*)
+  #                   and all Pull Requests. Feature branches without PRs are ignored.
   - script: |
       multibranchPipelineJob('KinDash-ci') {
         displayName('KinDash CI')
-        description('Multi-branch pipeline for all KinDash branches and PRs')
+        description('Multi-branch pipeline for KinDash. Only builds: main, develop, staging, deploy/*, and PRs.')
         branchSources {
-          github {
-            id('kindash-github-source')
-            repoOwner('steiner385')
-            repository('KinDash')
-            scanCredentialsId('github-credentials')
-            buildOriginBranch(true)
-            buildOriginBranchWithPR(false)
-            buildOriginPRMerge(true)
-            buildOriginPRHead(false)
-            buildForkPRMerge(false)
+          branchSource {
+            source {
+              github {
+                id('kindash-github-source')
+                repoOwner('steiner385')
+                repository('KinDash')
+                credentialsId('github-credentials')
+                repositoryUrl('https://github.com/steiner385/KinDash')
+                configuredByUrl(false)
+                traits {
+                  // Only discover protected branches (not feature branches)
+                  gitHubBranchDiscovery {
+                    strategyId(1)  // Exclude branches that are also filed as PRs
+                  }
+                  // Discover all PRs from origin
+                  gitHubPullRequestDiscovery {
+                    strategyId(1)  // Merging the PR with target branch
+                  }
+                  // Filter branches by regex - only main, develop, staging, and deploy/*
+                  headRegexFilter {
+                    regex('(main|develop|staging|deploy/.*)')
+                  }
+                  // Clean after checkout
+                  cleanAfterCheckoutTrait {
+                    extension {
+                      deleteUntrackedNestedRepositories(true)
+                    }
+                  }
+                }
+              }
+            }
           }
         }
         factory {
