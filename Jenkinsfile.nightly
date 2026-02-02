@@ -51,11 +51,12 @@ pipeline {
             agent { label 'linux' }
             steps {
                 checkout scm
-                sh '''
-                    rm -f .npmrc
-                    npm config set registry https://registry.npmjs.org
-                    npm ci --legacy-peer-deps
-                '''
+                script {
+                    def pm = pipelineHelpers.getPackageManager()
+                    echo "Using package manager: ${pm.name}"
+                    sh 'rm -f .npmrc'
+                    sh "${pm.install}"
+                }
             }
         }
 
@@ -64,9 +65,14 @@ pipeline {
             steps {
                 checkout scm
                 script {
-                    def auditResult = sh(script: 'npm audit --audit-level=high 2>&1 || true', returnStatus: true)
+                    def pm = pipelineHelpers.getPackageManager()
+                    // Use package-manager-specific audit command
+                    def auditCmd = pm.name == 'pnpm' ? 'pnpm audit --audit-level=high' :
+                                   pm.name == 'yarn' ? 'yarn audit --level high' :
+                                   'npm audit --audit-level=high'
+                    def auditResult = sh(script: "${auditCmd} 2>&1 || true", returnStatus: true)
                     if (auditResult != 0) {
-                        unstable('npm audit found high severity vulnerabilities')
+                        unstable("${pm.name} audit found high severity vulnerabilities")
                     }
                 }
             }
@@ -78,12 +84,12 @@ pipeline {
                     agent { label 'unit' }
                     steps {
                         checkout scm
-                        sh '''
-                            rm -f .npmrc
-                            npm config set registry https://registry.npmjs.org
-                            npm ci --legacy-peer-deps
-                        '''
-                        sh 'npm run test:unit -- --coverage'
+                        script {
+                            def pm = pipelineHelpers.getPackageManager()
+                            sh 'rm -f .npmrc'
+                            sh "${pm.install}"
+                            sh "${pm.run} test:unit -- --coverage"
+                        }
                     }
                     post {
                         always {
@@ -107,17 +113,20 @@ pipeline {
                     }
                     steps {
                         checkout scm
-                        sh '''
-                            rm -f .npmrc
-                            npm config set registry https://registry.npmjs.org
-                            npm ci --legacy-peer-deps
-                        '''
-                        sh 'npm run db:migrate:test || true'
-                        sh 'npm run test:integration || true'
+                        script {
+                            def pm = pipelineHelpers.getPackageManager()
+                            sh 'rm -f .npmrc'
+                            sh "${pm.install}"
+                            sh "${pm.run} db:migrate:test || true"
+                            sh "${pm.run} test:integration || true"
+                        }
                     }
                     post {
                         always {
-                            sh 'npm run db:teardown:test || true'
+                            script {
+                                def pm = pipelineHelpers.getPackageManager()
+                                sh "${pm.run} db:teardown:test || true"
+                            }
                         }
                     }
                 }
@@ -126,16 +135,16 @@ pipeline {
                     agent { label 'e2e' }
                     steps {
                         checkout scm
-                        sh '''
-                            rm -f .npmrc
-                            npm config set registry https://registry.npmjs.org
-                            npm ci --legacy-peer-deps
-                        '''
-                        // Install all browsers for nightly full browser matrix
-                        sh 'npx playwright install'
-                        sh 'npm run build'
-                        sh 'rm -rf allure-results'
-                        sh 'npm run test:e2e -- --project=chromium --project=firefox --project=webkit || true'
+                        script {
+                            def pm = pipelineHelpers.getPackageManager()
+                            sh 'rm -f .npmrc'
+                            sh "${pm.install}"
+                            // Install all browsers for nightly full browser matrix
+                            sh 'npx playwright install'
+                            sh "${pm.run} build"
+                            sh 'rm -rf allure-results'
+                            sh "${pm.run} test:e2e -- --project=chromium --project=firefox --project=webkit || true"
+                        }
                     }
                     post {
                         always {
@@ -159,12 +168,12 @@ pipeline {
             agent { label 'linux' }
             steps {
                 checkout scm
-                sh '''
-                    rm -f .npmrc
-                    npm config set registry https://registry.npmjs.org
-                    npm ci --legacy-peer-deps
-                '''
-                sh 'npm run build'
+                script {
+                    def pm = pipelineHelpers.getPackageManager()
+                    sh 'rm -f .npmrc'
+                    sh "${pm.install}"
+                    sh "${pm.run} build"
+                }
             }
         }
 
