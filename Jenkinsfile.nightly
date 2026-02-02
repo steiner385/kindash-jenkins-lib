@@ -11,6 +11,9 @@
  * - E2E tests across all browsers
  * - Security audits (npm audit)
  * - Build & bundle analysis
+ *
+ * Note: This pipeline explicitly checks out the KinDash application repo
+ * (not kindash-jenkins-lib where this Jenkinsfile lives).
  */
 
 // Load the shared library to access pipelineHelpers
@@ -20,6 +23,18 @@ library identifier: 'kindash-lib@main',
         remote: 'https://github.com/steiner385/kindash-jenkins-lib.git',
         credentialsId: 'github-credentials'
     ])
+
+// Helper to checkout the KinDash application repo (not the jenkins-lib repo)
+def checkoutKinDash() {
+    checkout([
+        $class: 'GitSCM',
+        branches: [[name: '*/main']],
+        userRemoteConfigs: [[
+            url: 'https://github.com/steiner385/KinDash.git',
+            credentialsId: 'github-credentials'
+        ]]
+    ])
+}
 
 pipeline {
     agent none
@@ -45,8 +60,8 @@ pipeline {
         stage('Initialize') {
             agent { label 'linux' }
             steps {
-                checkout scm
                 script {
+                    checkoutKinDash()
                     env.GIT_COMMIT = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
                     env.GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
                 }
@@ -57,8 +72,8 @@ pipeline {
         stage('Install Dependencies') {
             agent { label 'linux' }
             steps {
-                checkout scm
                 script {
+                    checkoutKinDash()
                     def pm = pipelineHelpers.getPackageManager()
                     echo "Using package manager: ${pm.name}"
                     sh 'rm -f .npmrc'
@@ -70,8 +85,8 @@ pipeline {
         stage('Security Audit') {
             agent { label 'linux' }
             steps {
-                checkout scm
                 script {
+                    checkoutKinDash()
                     def pm = pipelineHelpers.getPackageManager()
                     // Use package-manager-specific audit command
                     def auditCmd = pm.name == 'pnpm' ? 'pnpm audit --audit-level=high' :
@@ -90,8 +105,8 @@ pipeline {
                 stage('Unit Tests (Full Coverage)') {
                     agent { label 'unit' }
                     steps {
-                        checkout scm
                         script {
+                            checkoutKinDash()
                             def pm = pipelineHelpers.getPackageManager()
                             sh 'rm -f .npmrc'
                             sh "${pm.install}"
@@ -119,8 +134,8 @@ pipeline {
                         DATABASE_URL = 'postgresql://ci_user:ci_password@jenkins-postgres:5432/ci_test_db'
                     }
                     steps {
-                        checkout scm
                         script {
+                            checkoutKinDash()
                             def pm = pipelineHelpers.getPackageManager()
                             sh 'rm -f .npmrc'
                             sh "${pm.install}"
@@ -141,8 +156,8 @@ pipeline {
                 stage('E2E Tests (All Browsers)') {
                     agent { label 'e2e' }
                     steps {
-                        checkout scm
                         script {
+                            checkoutKinDash()
                             def pm = pipelineHelpers.getPackageManager()
                             sh 'rm -f .npmrc'
                             sh "${pm.install}"
@@ -174,8 +189,8 @@ pipeline {
         stage('Build & Bundle Analysis') {
             agent { label 'linux' }
             steps {
-                checkout scm
                 script {
+                    checkoutKinDash()
                     def pm = pipelineHelpers.getPackageManager()
                     sh 'rm -f .npmrc'
                     sh "${pm.install}"
@@ -215,14 +230,16 @@ pipeline {
 
     post {
         always {
-            script {
-                // Analyze Allure results from all test stages and create specific issues
-                if (fileExists('allure-results')) {
-                    analyzeAllureFailures(
-                        allureResultsDir: 'allure-results',
-                        testType: 'Nightly',
-                        maxIssues: 20  // Higher limit for nightly (multiple test types)
-                    )
+            node('linux') {
+                script {
+                    // Analyze Allure results from all test stages and create specific issues
+                    if (fileExists('allure-results')) {
+                        analyzeAllureFailures(
+                            allureResultsDir: 'allure-results',
+                            testType: 'Nightly',
+                            maxIssues: 20  // Higher limit for nightly (multiple test types)
+                        )
+                    }
                 }
             }
         }
