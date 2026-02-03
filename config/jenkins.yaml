@@ -277,9 +277,9 @@ jobs:
                 repositoryUrl('https://github.com/steiner385/KinDash')
                 configuredByUrl(false)
                 traits {
-                  // Only discover protected branches (not feature branches)
+                  // Only discover branches with open PRs
                   gitHubBranchDiscovery {
-                    strategyId(1)  // Exclude branches that are also filed as PRs
+                    strategyId(2)  // ONLY_PRS - only discover branches with open PRs
                   }
                   // Discover all PRs from origin
                   gitHubPullRequestDiscovery {
