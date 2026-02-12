@@ -5,7 +5,7 @@
  *
  * Features:
  * - Pre/post Docker cleanup
- * - Resource locking (test-infrastructure)
+ * - Resource locking (test-infrastructure) [DISABLED BY DEFAULT - skipLock=true]
  * - GitHub status reporting
  * - JUnit report publishing
  *

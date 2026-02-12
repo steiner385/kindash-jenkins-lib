@@ -7,7 +7,7 @@
  * - Full Docker infrastructure orchestration (app + postgres)
  * - Playwright-in-container approach for reliable network access
  * - Pre/post Docker cleanup with comprehensive port management
- * - Resource locking (test-infrastructure)
+ * - Resource locking (test-infrastructure) [DISABLED BY DEFAULT - skipLock=true]
  * - Playwright browser installation with caching
  * - GitHub status reporting
  * - Playwright and Allure report publishing
